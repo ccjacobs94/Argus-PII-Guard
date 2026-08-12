@@ -66,16 +66,40 @@ def prepare_icons():
 
 
 def clean_directory(dir_path):
-    """Safely remove a directory tree handling Windows read-only permissions."""
+    """Safely remove a directory tree handling Windows read-only permissions and locks."""
     if not dir_path.exists():
         return
-    def on_rm_error(func, path, exc_info):
+
+    # Strip read-only flags recursively
+    for root, dirs, files in os.walk(dir_path, topdown=False):
+        for name in files + dirs:
+            item_path = os.path.join(root, name)
+            try:
+                os.chmod(item_path, 0o777)
+            except Exception:
+                pass
+
+    def _handle_remove_readonly(func, path, exc_info=None):
         try:
             os.chmod(path, 0o777)
             func(path)
         except Exception:
             pass
-    shutil.rmtree(dir_path, onerror=on_rm_error)
+
+    try:
+        shutil.rmtree(dir_path, onexc=_handle_remove_readonly)
+    except Exception:
+        try:
+            shutil.rmtree(dir_path, onerror=_handle_remove_readonly)
+        except Exception:
+            pass
+
+    # Failsafe for Windows OneDrive/file locks
+    if dir_path.exists() and sys.platform == "win32":
+        try:
+            subprocess.call(f'cmd /c rmdir /s /q "{dir_path}"', shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
 
 
 def run_pyinstaller():
@@ -137,8 +161,34 @@ def build_windows_installer():
         print("    Install Inno Setup (https://jrsoftware.org/isinfo.php) to automatically build Argus_PII_Guard_v1.0.0_Setup.exe.")
 
 
+def copy_native_installer_payload():
+    """Copy native cross-platform installer scripts into built bundle."""
+    bundle_dir = DIST_DIR / "Argus PII Guard"
+    if not bundle_dir.exists():
+        return
+
+    installer_target_dir = bundle_dir / "installer"
+    installer_target_dir.mkdir(parents=True, exist_ok=True)
+    
+    backend_target_dir = bundle_dir / "backend"
+    backend_target_dir.mkdir(parents=True, exist_ok=True)
+
+    src_installer = BASE_DIR / "installer"
+    for item_name in ["native_installer.py", "install.sh"]:
+        src_file = src_installer / item_name
+        if src_file.exists():
+            shutil.copy2(src_file, installer_target_dir / item_name)
+
+    src_backend_installer = BASE_DIR / "backend" / "installer.py"
+    if src_backend_installer.exists():
+        shutil.copy2(src_backend_installer, backend_target_dir / "installer.py")
+
+    print("[OK] Native installer payload bundled into release distribution.")
+
+
 def create_release_archive():
     print_step("5. Creating Release Archive")
+    copy_native_installer_payload()
     INSTALLERS_DIR.mkdir(parents=True, exist_ok=True)
     bundle_dir = DIST_DIR / "Argus PII Guard"
 

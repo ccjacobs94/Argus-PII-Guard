@@ -1,4 +1,4 @@
-# Building & Packaging Argus PII Guard v1.0.0
+# Building & Packaging Argus PII Guard v1.0.5
 
 This guide provides instructions for building standalone desktop application bundles and installers for **Windows**, **macOS**, and **Linux**.
 
@@ -6,7 +6,7 @@ This guide provides instructions for building standalone desktop application bun
 
 ## Prerequisites
 
-1. **Python**: Python 3.9+ (Python 3.11/3.12 recommended).
+1. **Python**: Python 3.10+ (Python 3.11/3.12 recommended).
 2. **Dependencies**:
    ```bash
    pip install -r requirements.txt
@@ -27,8 +27,9 @@ The script will:
 1. Verify Python & PyInstaller environment.
 2. Ensure application icons are generated.
 3. Package the Python backend and `frontend/` static assets into a standalone folder: `dist/Argus PII Guard/`.
-4. On Windows (if Inno Setup is installed), compile `dist/installers/Argus_PII_Guard_v1.0.0_Setup.exe`.
-5. Compress release archives (`.zip` / `.tar.gz`) into `dist/installers/`.
+4. Bundle native installer payloads (`installer/native_installer.py` and `installer/install.sh`).
+5. On Windows (if Inno Setup is installed), compile `dist/installers/Argus_PII_Guard_v1.0.5_Setup.exe`.
+6. Compress release archives (`.zip` / `.tar.gz`) into `dist/installers/`.
 
 ---
 
