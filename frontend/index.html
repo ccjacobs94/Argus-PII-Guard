@@ -154,14 +154,38 @@
                 <header class="results-header">
                     <div>
                         <h1>Detections & Reports</h1>
-                        <p>Review flagged data leaks, verify with AI, or mark false positives as safe.</p>
+                        <p>Review flagged data leaks, remediate with in-place redaction, or mark false positives as safe.</p>
                     </div>
                     <div class="action-buttons">
                         <button id="refresh-results-btn" class="btn btn-secondary"><i class="ph ph-arrows-clockwise"></i> Refresh</button>
+                        <button id="batch-redact-selected-btn" class="btn btn-primary" title="Sanitize selected files in-place"><i class="ph-bold ph-eraser"></i> Redact Selected</button>
                         <button id="mark-selected-ok-btn" class="btn btn-success"><i class="ph ph-check-circle"></i> Mark Selected OK</button>
                         <button id="delete-selected-btn" class="btn btn-danger"><i class="ph ph-trash"></i> Delete Selected</button>
                     </div>
                 </header>
+
+                <div class="results-controls-bar">
+                    <div class="results-tabs" id="results-tabs">
+                        <button class="results-tab active" data-tab="active" id="tab-active-findings">
+                            <i class="ph-bold ph-shield-warning"></i> Flagged Findings <span class="tab-badge" id="active-findings-badge">0</span>
+                        </button>
+                        <button class="results-tab" data-tab="resolved" id="tab-resolved-findings">
+                            <i class="ph-bold ph-shield-check"></i> Resolved & Whitelisted <span class="tab-badge badge-neutral" id="resolved-findings-badge">0</span>
+                        </button>
+                    </div>
+                    <div class="results-search-box">
+                        <i class="ph ph-magnifying-glass"></i>
+                        <input type="text" id="results-search-input" placeholder="Filter files, types, or findings...">
+                    </div>
+                </div>
+
+                <div class="keyboard-hints-bar">
+                    <span class="hint-title"><i class="ph-bold ph-keyboard"></i> Power Hotkeys:</span>
+                    <span class="hint-item"><kbd>R</kbd> Redact Finding</span>
+                    <span class="hint-item"><kbd>D</kbd> Move to Trash</span>
+                    <span class="hint-item"><kbd>S</kbd> Mark as Safe</span>
+                    <span class="hint-item"><kbd>J</kbd> / <kbd>K</kbd> Next/Prev Finding</span>
+                </div>
 
                 <div class="glass-panel results-container">
                     <div class="table-header">
@@ -408,7 +432,30 @@
                         </select>
                     </div>
 
-                    <h3 style="margin-top: 32px;">Remediation & Actions</h3>
+                    <h3 style="margin-top: 32px;">Remediation, Redaction &amp; Safety</h3>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="redaction-mask-select">In-Place Redaction Masking Token</label>
+                            <p>Style used to sanitize detected sensitive text in files.</p>
+                        </div>
+                        <select id="redaction-mask-select" class="input-field" style="width: 250px;">
+                            <option value="redacted">[REDACTED] (Standard Token)</option>
+                            <option value="mask">Mask with * / X (Preserve Format)</option>
+                            <option value="confidential">[CONFIDENTIAL] (Security Tag)</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="deletion-mode-select">File Deletion Target</label>
+                            <p>Method used when removing compromised files from disk.</p>
+                        </div>
+                        <select id="deletion-mode-select" class="input-field" style="width: 250px;">
+                            <option value="trash">Move to Recycle Bin / Trash (Recoverable)</option>
+                            <option value="permanent">Permanent Immediate Delete</option>
+                        </select>
+                    </div>
+
                     <div class="setting-row">
                         <div class="setting-info">
                             <label for="auto-delete-toggle">Automatic Leak Removal</label>
@@ -420,6 +467,36 @@
                         </label>
                     </div>
 
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label>Automatic Redaction Backups (.argus_backups/)</label>
+                            <p>Pre-redaction file copies are safely preserved for 7 days.</p>
+                        </div>
+                        <button id="prune-backups-btn" class="btn btn-secondary btn-small">
+                            <i class="ph ph-broom"></i> Prune Old Backups
+                        </button>
+                    </div>
+
+                    <!-- Allowed Exceptions (.argusignore) Card -->
+                    <h3 style="margin-top: 32px;">Allowed Exceptions (.argusignore)</h3>
+                    <div class="exceptions-card glass-panel" id="allowed-exceptions-card">
+                        <div class="exceptions-header">
+                            <div>
+                                <h4><i class="ph-fill ph-shield-check" style="color: var(--argus-teal);"></i> Whitelisted Files &amp; Patterns</h4>
+                                <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Files and matches configured to be skipped in future sentinel scans.</p>
+                            </div>
+                            <button id="refresh-exceptions-btn" class="btn btn-icon btn-small" title="Refresh exceptions list">
+                                <i class="ph ph-arrows-clockwise"></i>
+                            </button>
+                        </div>
+                        <div id="exceptions-list" class="exceptions-list">
+                            <div class="empty-exceptions-state">
+                                <i class="ph ph-shield"></i>
+                                <p>No allowed exceptions configured yet.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <button id="save-settings-btn" class="btn btn-primary" style="margin-top: 32px; width: 100%;">
                         <i class="ph-fill ph-floppy-disk"></i> Save Configuration
                     </button>
@@ -428,7 +505,7 @@
         </main>
     </div>
 
-    <!-- Modal for File Preview -->
+    <!-- Modal for File Preview & Remediation Inspector -->
     <div id="preview-modal" class="modal hidden">
         <div class="modal-content glass-panel">
             <div class="modal-header">
@@ -438,32 +515,48 @@
                     </div>
                     <div style="min-width: 0;">
                         <h3 id="preview-title" class="preview-title-text" title="File Preview">File Preview</h3>
-                        <p id="preview-subtitle" class="preview-subtitle-text">Inspection & Detection Visualizer</p>
+                        <p id="preview-subtitle" class="preview-subtitle-text">Inspection & Remediation Visualizer</p>
                     </div>
                 </div>
                 <div id="preview-badges" class="preview-badges-container">
                     <!-- Badges injected dynamically -->
                 </div>
-                <span class="close-btn" title="Close Preview">&times;</span>
+                <div class="modal-header-actions">
+                    <button id="modal-batch-redact-btn" class="btn btn-primary btn-small" title="Sanitize all findings in this file">
+                        <i class="ph-bold ph-eraser"></i> Redact All in File
+                    </button>
+                </div>
+                <span class="close-btn" title="Close Preview (Esc)">&times;</span>
             </div>
 
-            <!-- Findings Bar for Quick Jump -->
+            <!-- Permission / Tamper Alerts Container -->
+            <div id="preview-alert-banner" class="preview-alert-banner hidden"></div>
+
+            <!-- Findings Bar for Quick Jump & Shortcut Guide -->
             <div id="preview-findings-bar" class="preview-findings-bar hidden">
-                <span class="findings-label"><i class="ph-bold ph-crosshair"></i> Findings:</span>
-                <div id="preview-findings-chips" class="findings-chips-container">
-                    <!-- Chips injected dynamically -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="findings-label"><i class="ph-bold ph-crosshair"></i> Findings:</span>
+                    <div id="preview-findings-chips" class="findings-chips-container">
+                        <!-- Chips injected dynamically -->
+                    </div>
+                </div>
+                <div class="modal-shortcut-pills">
+                    <span class="shortcut-pill"><kbd>R</kbd> Redact</span>
+                    <span class="shortcut-pill"><kbd>D</kbd> Trash</span>
+                    <span class="shortcut-pill"><kbd>S</kbd> Safe</span>
+                    <span class="shortcut-pill"><kbd>J</kbd>/<kbd>K</kbd> Nav</span>
                 </div>
             </div>
 
             <div id="preview-body" class="preview-body">
-                <!-- Image or code preview goes here -->
+                <!-- Image or code preview with inline action bars goes here -->
             </div>
 
             <div class="modal-footer" id="preview-footer">
                 <div id="preview-status-reason" class="preview-reason-text"></div>
                 <div style="display: flex; gap: 10px; align-items: center;">
-                    <button id="modal-mark-ok-btn" class="btn btn-success"><i class="ph ph-check-circle"></i> Mark as OK (Safe)</button>
-                    <button id="modal-delete-btn" class="btn btn-danger"><i class="ph ph-trash"></i> Delete File</button>
+                    <button id="modal-mark-ok-btn" class="btn btn-success"><i class="ph ph-shield-check"></i> Mark as Safe (Whitelist)</button>
+                    <button id="modal-delete-btn" class="btn btn-danger"><i class="ph ph-trash"></i> Move to Trash</button>
                 </div>
             </div>
         </div>

@@ -1,4 +1,5 @@
 import os
+import time
 import tempfile
 import json
 import threading
@@ -526,10 +527,18 @@ def test_start_and_stop_scan(tmp_path):
         assert hold_event.wait(timeout=1.0) is True
         # Second start while running returns False
         assert start_scan_thread([str(folder)], lambda r: None) is False
+        
+        # Abort scan
+        stop_scan()
+        assert scan_state.should_stop is True
         release_event.set()
 
-    stop_scan()
-    assert scan_state.should_stop is True
+    # Wait for thread to finish and test starting again after stop
+    time.sleep(0.1)
+    with patch("backend.scanner.run_scan", side_effect=lambda *a, **k: None):
+        assert start_scan_thread([str(folder)], lambda r: None) is True
+        stop_scan(timeout=0.5)
+
 
 
 # ============================================================================

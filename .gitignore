@@ -28,6 +28,10 @@ models/
 *.part
 *.crdownload
 *.download
+.argus_backups/
+.argus_trash/
+.argusignore
+*.argus_backup
 
 # Environment & Local Secrets
 .env

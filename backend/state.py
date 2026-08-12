@@ -28,6 +28,11 @@ def load_settings():
         # Ollama model names (previously hardcoded in scanner.py)
         "vision_model_name": "gemma4:12b",
         "text_model_name": "gemma4:12b",
+        # Remediation & Redaction settings
+        "redaction_mask_pattern": "redacted", # "redacted", "mask", "confidential"
+        "deletion_mode": "trash", # "trash" (Recycle bin) or "permanent"
+        "backup_retention_days": 7,
+        "allowed_exceptions": [], # List of {"id", "file", "pattern", "match_text", "added_at", "reason"}
     }
     if os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "r") as f:

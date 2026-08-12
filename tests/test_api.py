@@ -58,10 +58,13 @@ def test_api_check_ollama(api_instance):
         assert res["success"] is True
         assert res["message"] == "Ollama running"
 
-def test_api_start_and_stop_scan(api_instance):
-    save_settings({"folders": ["C:/TargetDir"]})
+def test_api_start_and_stop_scan(api_instance, tmp_path):
+    target_dir = tmp_path / "TargetDir"
+    target_dir.mkdir()
+    save_settings({"folders": [str(target_dir)]})
     with patch("backend.main.start_scan_thread", return_value=True) as mock_scan:
-        assert api_instance.start_scan(rescan_all=True) is True
+        res = api_instance.start_scan(rescan_all=True)
+        assert res["success"] is True
         mock_scan.assert_called_once()
         # Verify callback invoked
         callback = mock_scan.call_args[0][1]
@@ -70,9 +73,25 @@ def test_api_start_and_stop_scan(api_instance):
 
     # When folders empty
     save_settings({"folders": []})
-    assert api_instance.start_scan() is False
+    res_empty = api_instance.start_scan()
+    assert res_empty["success"] is False
+    assert res_empty["error"] == "no_directories"
 
-    assert api_instance.stop_scan() is True
+    # When folders do not exist on disk
+    save_settings({"folders": [str(tmp_path / "non_existent_folder")]})
+    res_invalid = api_instance.start_scan()
+    assert res_invalid["success"] is False
+    assert res_invalid["error"] == "invalid_directories"
+
+    # When scan thread fails to start
+    save_settings({"folders": [str(target_dir)]})
+    with patch("backend.main.start_scan_thread", return_value=False):
+        res_busy = api_instance.start_scan()
+        assert res_busy["success"] is False
+        assert res_busy["error"] == "scan_in_progress"
+
+    assert api_instance.stop_scan()["success"] is True
+
 
 def test_api_mark_file_ok_and_cache(api_instance, tmp_path):
     test_file = tmp_path / "false_positive.txt"

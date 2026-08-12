@@ -17,6 +17,10 @@ window.addEventListener('DOMContentLoaded', function() {
 let scanInterval = null;
 let currentResults = [];
 let currentPreviewFile = null;
+let currentPreviewData = null;
+let currentResultsTab = 'active'; // 'active' or 'resolved'
+let resultsSearchQuery = '';
+let activeFindingIndex = 0;
 
 function switchView(targetId) {
     document.querySelectorAll('.nav-item').forEach(n => {
@@ -114,7 +118,7 @@ function startProgressPolling() {
         document.getElementById('scan-flagged-count').innerText = `${p.flagged_count} flagged`;
         
         const filePath = p.current_file || '';
-        const fileName = filePath ? filePath.split('\\\\').pop().split('/').pop() : 'Inspecting...';
+        const fileName = filePath ? filePath.split('\\').pop().split('/').pop() : 'Inspecting...';
         document.getElementById('scan-current-file').innerText = fileName ? `Inspecting: ${fileName}` : 'Inspecting...';
         
     }, 800);
@@ -131,34 +135,61 @@ async function loadResults() {
     const results = await pywebview.api.get_results();
     currentResults = results;
     document.getElementById('select-all-checkbox').checked = false;
-    document.getElementById('results-list').dataset.count = "-1"; // Force render
     renderResultsUI(results);
 }
 
 function renderResultsUI(results) {
     const list = document.getElementById('results-list');
-    
-    // Optimization to prevent re-rendering when counts haven't changed
-    if (list.dataset.count === String(results.length)) {
-        return;
+    if (!list) return;
+
+    // Filter active vs resolved
+    const activeResults = results.filter(r => !r.auto_deleted && r.compromised !== false);
+    const resolvedResults = results.filter(r => r.auto_deleted || r.compromised === false);
+
+    const activeBadge = document.getElementById('active-findings-badge');
+    const resolvedBadge = document.getElementById('resolved-findings-badge');
+    if (activeBadge) activeBadge.textContent = activeResults.length;
+    if (resolvedBadge) resolvedBadge.textContent = resolvedResults.length;
+
+    let targetResults = currentResultsTab === 'resolved' ? resolvedResults : activeResults;
+
+    // Apply search query filter if typed
+    if (resultsSearchQuery) {
+        const q = resultsSearchQuery.toLowerCase();
+        targetResults = targetResults.filter(r => {
+            const fileName = (r.file || '').toLowerCase();
+            const reason = (r.reason || '').toLowerCase();
+            const type = (r.type || '').toLowerCase();
+            return fileName.includes(q) || reason.includes(q) || type.includes(q);
+        });
     }
-    list.dataset.count = results.length;
-    
-    if (results.length === 0) {
-        list.innerHTML = `
-            <div class="empty-state">
-                <i class="ph-fill ph-shield-check" style="font-size: 52px; color: var(--argus-teal);"></i>
-                <p style="margin-top: 14px; font-weight: 700; font-size: 16px; color: var(--text-main);">All Inspected Files are SECURE</p>
-                <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">No PII leaks or compromised data detected.</p>
-            </div>
-        `;
+
+    if (targetResults.length === 0) {
+        if (currentResultsTab === 'resolved') {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <i class="ph-fill ph-check-circle" style="font-size: 52px; color: var(--argus-teal);"></i>
+                    <p style="margin-top: 14px; font-weight: 700; font-size: 16px; color: var(--text-main);">No Resolved Files Yet</p>
+                    <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">Remediated or whitelisted safe files will appear here.</p>
+                </div>
+            `;
+        } else {
+            list.innerHTML = `
+                <div class="empty-state">
+                    <i class="ph-fill ph-shield-check" style="font-size: 52px; color: var(--argus-teal);"></i>
+                    <p style="margin-top: 14px; font-weight: 700; font-size: 16px; color: var(--text-main);">All Inspected Files are SECURE</p>
+                    <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">No active PII leaks or compromised data detected.</p>
+                </div>
+            `;
+        }
         return;
     }
 
     list.innerHTML = '';
-    results.forEach(res => {
+    targetResults.forEach((res, rowIdx) => {
         const row = document.createElement('div');
         row.className = 'result-row';
+        row.id = `result-row-${rowIdx}`;
         const isDeleted = res.auto_deleted;
         const needsVerification = res.needs_ai_verification;
         const isVerified = res.verified_true;
@@ -170,7 +201,7 @@ function renderResultsUI(results) {
             checkboxHtml = `<input type="checkbox" class="result-checkbox" data-file="${res.file.replace(/"/g, '&quot;')}">`;
         }
         
-        // Status Badge from Argus Component Library
+        // Status Badge
         let statusBadgeHtml = '';
         if (isDeleted) {
             statusBadgeHtml = `<span class="status-indicator badge-leak"><i class="ph-bold ph-trash"></i> REMOVED</span>`;
@@ -190,7 +221,8 @@ function renderResultsUI(results) {
             actionsHtml += `<span style="color: var(--argus-teal); font-size: 12px; font-weight: 700; display:flex; align-items:center; gap:4px;"><i class="ph-fill ph-check-circle"></i> Verified</span>`;
         }
         if (!isDeleted) {
-            actionsHtml += `<button class="mark-ok-btn" data-file="${res.file.replace(/"/g, '&quot;')}" title="Mark as false positive (clear & skip)"><i class="ph-bold ph-check"></i> Mark OK</button>`;
+            actionsHtml += `<button class="btn btn-primary btn-small quick-redact-btn" data-file="${res.file.replace(/"/g, '&quot;')}" title="Sanitize all findings in this file in-place"><i class="ph-bold ph-eraser"></i> Redact</button>`;
+            actionsHtml += `<button class="mark-ok-btn" data-file="${res.file.replace(/"/g, '&quot;')}" title="Mark as false positive (whitelist rule)"><i class="ph-bold ph-shield-check"></i> Safe</button>`;
         }
         actionsHtml += `</div>`;
         
@@ -211,7 +243,7 @@ function renderResultsUI(results) {
         list.appendChild(row);
     });
 
-    // Add click handler for file preview
+    // Add click handler for file preview / inspector
     document.querySelectorAll('.col-file:not(.deleted)').forEach(el => {
         el.addEventListener('click', async (e) => {
             const filePath = e.currentTarget.getAttribute('data-file');
@@ -219,12 +251,36 @@ function renderResultsUI(results) {
         });
     });
 
-    // Add click handler for Mark OK buttons
+    // Quick Redact in list
+    document.querySelectorAll('.quick-redact-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const filePath = e.currentTarget.getAttribute('data-file');
+            btn.innerHTML = '<i class="ph ph-spinner spin"></i> Redacting...';
+            btn.disabled = true;
+            if (pywebview.api.batch_redact) {
+                const res = await pywebview.api.batch_redact(filePath);
+                if (res && res.success) {
+                    loadResults();
+                } else {
+                    alert(res?.message || 'Redaction failed');
+                    btn.innerHTML = '<i class="ph-bold ph-eraser"></i> Redact';
+                    btn.disabled = false;
+                }
+            }
+        });
+    });
+
+    // Add click handler for Mark OK / Safe buttons
     document.querySelectorAll('.mark-ok-btn').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             e.stopPropagation();
             const filePath = e.currentTarget.getAttribute('data-file');
-            await pywebview.api.mark_file_ok(filePath);
+            if (pywebview.api.mark_as_safe) {
+                await pywebview.api.mark_as_safe(filePath);
+            } else {
+                await pywebview.api.mark_file_ok(filePath);
+            }
             loadResults();
         });
     });
@@ -243,8 +299,14 @@ function renderResultsUI(results) {
     });
 }
 
+// --------------------------------------------------------------------------
+// Deep Remediation Inspector & Preview Modal
+// --------------------------------------------------------------------------
+
 async function showPreview(filePath) {
     currentPreviewFile = filePath;
+    activeFindingIndex = 0;
+
     const modal = document.getElementById('preview-modal');
     const body = document.getElementById('preview-body');
     const title = document.getElementById('preview-title');
@@ -254,6 +316,7 @@ async function showPreview(filePath) {
     const findingsBar = document.getElementById('preview-findings-bar');
     const findingsChips = document.getElementById('preview-findings-chips');
     const reasonText = document.getElementById('preview-status-reason');
+    const alertBanner = document.getElementById('preview-alert-banner');
 
     const fileName = filePath.split('\\').pop().split('/').pop();
     title.innerText = fileName;
@@ -262,6 +325,10 @@ async function showPreview(filePath) {
     badgesContainer.innerHTML = '';
     findingsChips.innerHTML = '';
     findingsBar.classList.add('hidden');
+    if (alertBanner) {
+        alertBanner.innerHTML = '';
+        alertBanner.className = 'preview-alert-banner hidden';
+    }
     reasonText.innerText = '';
     body.innerHTML = '<div class="pulse-ring"></div>';
     modal.classList.remove('hidden');
@@ -291,6 +358,38 @@ async function showPreview(filePath) {
         return;
     }
 
+    currentPreviewData = previewData;
+
+    // Check write permissions
+    if (previewData.is_writable === false && alertBanner) {
+        alertBanner.className = 'preview-alert-banner alert-permission';
+        alertBanner.innerHTML = `
+            <span><i class="ph-bold ph-lock-key"></i> <strong>Permission Denied:</strong> This file is read-only. Remove write protection to enable in-place remediation.</span>
+            <button id="alert-fix-permissions-btn" class="btn btn-secondary btn-small">
+                <i class="ph-bold ph-key"></i> Fix Permissions
+            </button>
+        `;
+        alertBanner.classList.remove('hidden');
+
+        const fixBtn = document.getElementById('alert-fix-permissions-btn');
+        if (fixBtn) {
+            fixBtn.addEventListener('click', async () => {
+                fixBtn.disabled = true;
+                fixBtn.innerHTML = '<i class="ph ph-spinner spin"></i> Fixing...';
+                if (pywebview.api.fix_file_permissions) {
+                    const res = await pywebview.api.fix_file_permissions(filePath);
+                    if (res && res.success) {
+                        showPreview(filePath);
+                    } else {
+                        alert('Could not update file permissions: ' + (res?.error || 'Unknown error'));
+                        fixBtn.disabled = false;
+                        fixBtn.innerHTML = '<i class="ph-bold ph-key"></i> Fix Permissions';
+                    }
+                }
+            });
+        }
+    }
+
     if (previewData.content_type === 'image') {
         iconContainer.innerHTML = '<i class="ph-fill ph-image" style="color:var(--argus-teal)"></i>';
         renderImagePreview(previewData);
@@ -308,10 +407,15 @@ function renderTextPreview(previewData) {
     const findingsBar = document.getElementById('preview-findings-bar');
     const findingsChips = document.getElementById('preview-findings-chips');
     const reasonText = document.getElementById('preview-status-reason');
+    const batchRedactBtn = document.getElementById('modal-batch-redact-btn');
 
     const highlights = previewData.highlights || [];
     const content = previewData.content || '';
     reasonText.innerText = previewData.reason || '';
+
+    if (batchRedactBtn) {
+        batchRedactBtn.style.display = (highlights.length > 0 && previewData.file_type !== 'PDF') ? 'inline-flex' : 'none';
+    }
 
     // Badges & Findings bar
     let checksumBadge = '';
@@ -328,14 +432,15 @@ function renderTextPreview(previewData) {
         findingsBar.classList.remove('hidden');
         findingsChips.innerHTML = '';
 
-        highlights.forEach(h => {
+        highlights.forEach((h, idx) => {
             const chip = document.createElement('button');
-            chip.className = `finding-chip ${h.source === 'ai' ? 'chip-ai' : ''}`;
+            chip.className = `finding-chip ${h.source === 'ai' ? 'chip-ai' : ''} ${idx === activeFindingIndex ? 'active-chip' : ''}`;
+            chip.id = `finding-chip-${idx}`;
             const icon = h.source === 'ai' ? 'ph-magic-wand' : 'ph-crosshair';
-            chip.innerHTML = `<i class="ph-bold ${icon}"></i> Line ${h.line_number}: ${escapeHtml(h.pattern_name)}`;
-            chip.title = `Jump to line ${h.line_number} ("${h.match_text}")`;
+            chip.innerHTML = `<i class="ph-bold ${icon}"></i> #${idx + 1} Line ${h.line_number}: ${escapeHtml(h.pattern_name)}`;
+            chip.title = `Jump to Line ${h.line_number} ("${h.match_text}")`;
             chip.addEventListener('click', () => {
-                scrollToCodeLine(h.line_number);
+                focusFindingIndex(idx);
             });
             findingsChips.appendChild(chip);
         });
@@ -348,7 +453,7 @@ function renderTextPreview(previewData) {
         findingsBar.classList.add('hidden');
     }
 
-    // Render code viewer
+    // Map highlights to line numbers
     const lines = content.split('\n');
     const wrapper = document.createElement('div');
     wrapper.className = 'code-viewer-wrapper';
@@ -358,7 +463,8 @@ function renderTextPreview(previewData) {
     table.className = 'code-viewer-table';
 
     const lineHighlightsMap = {};
-    highlights.forEach(h => {
+    highlights.forEach((h, idx) => {
+        h._globalIndex = idx;
         if (!lineHighlightsMap[h.line_number]) {
             lineHighlightsMap[h.line_number] = [];
         }
@@ -392,6 +498,48 @@ function renderTextPreview(previewData) {
         lineRow.appendChild(numCell);
         lineRow.appendChild(textCell);
         table.appendChild(lineRow);
+
+        // Persistent inline action bar beneath each flagged finding line
+        if (isFlagged && previewData.file_type !== 'PDF') {
+            const lineHits = lineHighlightsMap[lineNum];
+            lineHits.forEach(h => {
+                const actionBar = document.createElement('div');
+                actionBar.className = 'inline-finding-action-bar';
+                actionBar.id = `action-bar-finding-${h._globalIndex}`;
+                actionBar.innerHTML = `
+                    <span class="inline-finding-label"><i class="ph-bold ph-shield-warning"></i> Finding #${h._globalIndex + 1}: ${escapeHtml(h.pattern_name)}</span>
+                    <button class="inline-finding-btn inline-redact-btn" data-finding-idx="${h._globalIndex}" title="Sanitize only this detected string in-place">
+                        <i class="ph-bold ph-eraser"></i> Redact Entity <kbd>R</kbd>
+                    </button>
+                    <button class="inline-finding-btn inline-safe-btn" data-finding-idx="${h._globalIndex}" title="Add whitelist rule to .argusignore">
+                        <i class="ph-bold ph-shield-check"></i> Mark Safe <kbd>S</kbd>
+                    </button>
+                    <button class="inline-finding-btn inline-trash-btn" title="Move entire file to Recycle Bin">
+                        <i class="ph-bold ph-trash"></i> Delete File <kbd>D</kbd>
+                    </button>
+                `;
+
+                // Redact button handler
+                actionBar.querySelector('.inline-redact-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await executeRedactFinding(h);
+                });
+
+                // Mark Safe button handler
+                actionBar.querySelector('.inline-safe-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await executeMarkFindingSafe(h);
+                });
+
+                // Trash button handler
+                actionBar.querySelector('.inline-trash-btn').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await executeDeleteFile();
+                });
+
+                table.appendChild(actionBar);
+            });
+        }
     });
 
     wrapper.appendChild(table);
@@ -400,8 +548,120 @@ function renderTextPreview(previewData) {
 
     if (highlights.length > 0) {
         setTimeout(() => {
-            scrollToCodeLine(highlights[0].line_number);
+            focusFindingIndex(0);
         }, 80);
+    }
+}
+
+function focusFindingIndex(index) {
+    if (!currentPreviewData || !currentPreviewData.highlights || currentPreviewData.highlights.length === 0) return;
+    const count = currentPreviewData.highlights.length;
+    activeFindingIndex = (index + count) % count;
+
+    const finding = currentPreviewData.highlights[activeFindingIndex];
+    if (!finding) return;
+
+    // Update active chip
+    document.querySelectorAll('.finding-chip').forEach((c, idx) => {
+        if (idx === activeFindingIndex) {
+            c.classList.add('active-chip');
+            c.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        } else {
+            c.classList.remove('active-chip');
+        }
+    });
+
+    // Highlight row
+    document.querySelectorAll('.code-row').forEach(r => r.classList.remove('active-finding'));
+    const targetLine = document.getElementById(`code-line-${finding.line_number}`);
+    if (targetLine) {
+        targetLine.classList.add('active-finding');
+    }
+
+    scrollToCodeLine(finding.line_number);
+}
+
+async function executeRedactFinding(finding) {
+    if (!currentPreviewFile || !finding) return;
+    const btn = document.querySelector(`#action-bar-finding-${finding._globalIndex} .inline-redact-btn`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ph ph-spinner spin"></i> Redacting...';
+    }
+
+    if (pywebview.api.redact_entity) {
+        const res = await pywebview.api.redact_entity(
+            currentPreviewFile,
+            finding.line_number,
+            finding.start_col,
+            finding.end_col,
+            finding.match_text,
+            null,
+            currentPreviewData?.checksum
+        );
+
+        if (res && res.success) {
+            await showPreview(currentPreviewFile);
+            loadResults();
+        } else if (res && res.error === 'file_modified') {
+            const alertBanner = document.getElementById('preview-alert-banner');
+            if (alertBanner) {
+                alertBanner.className = 'preview-alert-banner alert-modified';
+                alertBanner.innerHTML = `
+                    <span><i class="ph-bold ph-warning"></i> <strong>File Modified:</strong> File was modified externally on disk.</span>
+                    <button id="alert-reload-btn" class="btn btn-secondary btn-small"><i class="ph-bold ph-arrows-clockwise"></i> Reload Preview</button>
+                `;
+                alertBanner.classList.remove('hidden');
+                document.getElementById('alert-reload-btn')?.addEventListener('click', () => showPreview(currentPreviewFile));
+            }
+        } else if (res && res.error === 'permission_denied') {
+            const alertBanner = document.getElementById('preview-alert-banner');
+            if (alertBanner) {
+                alertBanner.className = 'preview-alert-banner alert-permission';
+                alertBanner.innerHTML = `
+                    <span><i class="ph-bold ph-lock-key"></i> <strong>Permission Denied:</strong> File is read-only.</span>
+                    <button id="alert-fix-perm-btn" class="btn btn-secondary btn-small"><i class="ph-bold ph-key"></i> Fix Permissions</button>
+                `;
+                alertBanner.classList.remove('hidden');
+            }
+        } else {
+            alert('Redaction error: ' + (res?.message || res?.error || 'Unknown error'));
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="ph-bold ph-eraser"></i> Redact Entity <kbd>R</kbd>';
+            }
+        }
+    }
+}
+
+async function executeMarkFindingSafe(finding) {
+    if (!currentPreviewFile) return;
+    if (pywebview.api.mark_as_safe) {
+        await pywebview.api.mark_as_safe(
+            currentPreviewFile,
+            finding ? finding.match_text : null,
+            finding ? finding.pattern_name : null
+        );
+    } else {
+        await pywebview.api.mark_file_ok(currentPreviewFile);
+    }
+    const modal = document.getElementById('preview-modal');
+    if (modal) modal.classList.add('hidden');
+    loadResults();
+}
+
+async function executeDeleteFile() {
+    if (!currentPreviewFile) return;
+    const fileName = currentPreviewFile.split('\\').pop().split('/').pop();
+    if (confirm(`Move "${fileName}" to Recycle Bin / System Trash?`)) {
+        if (pywebview.api.delete_file_item) {
+            await pywebview.api.delete_file_item(currentPreviewFile);
+        } else {
+            await pywebview.api.delete_files([currentPreviewFile]);
+        }
+        const modal = document.getElementById('preview-modal');
+        if (modal) modal.classList.add('hidden');
+        loadResults();
     }
 }
 
@@ -735,29 +995,33 @@ class ArgusTourEngine {
                 id: 'results-table',
                 view: 'results',
                 target: '#results-list',
-                title: '4. Triage & Remediate Detections',
+                title: '4. Triage & Batch Remediation',
                 badge: 'Step 5 of 8',
                 html: `
-                    <p>When sensitive data (such as API keys, SSNs, credit cards, or passwords) is detected, it is listed here:</p>
+                    <p>When sensitive data (such as API keys, SSNs, credit cards, or passwords) is detected, it is listed here for immediate action:</p>
                     <ul class="tour-feature-list">
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-magic-wand" style="color:var(--argus-periwinkle)"></i>
-                            <div><strong>AI Verify:</strong> Triggers a high-precision secondary AI model to verify ambiguous regex pattern hits.</div>
-                        </li>
-                        <li class="tour-feature-item">
-                            <i class="ph-fill ph-check-circle" style="color:var(--argus-teal)"></i>
-                            <div><strong>Mark OK (Whitelist):</strong> Marks false positives as safe. Argus remembers your decision permanently.</div>
+                            <i class="ph-fill ph-eraser" style="color:var(--argus-teal)"></i>
+                            <div><strong>Redact Selected:</strong> Sanitizes detected secrets in-place across checked files while preserving surrounding content.</div>
                         </li>
                         <li class="tour-feature-item">
                             <i class="ph-fill ph-trash" style="color:var(--danger)"></i>
-                            <div><strong>Delete Selected:</strong> Safely purges compromised files from your disk.</div>
+                            <div><strong>Move to Trash:</strong> Safely moves flagged files to your system Recycle Bin/Trash (recoverable).</div>
+                        </li>
+                        <li class="tour-feature-item">
+                            <i class="ph-fill ph-shield-check" style="color:var(--argus-green)"></i>
+                            <div><strong>Mark as Safe (.argusignore):</strong> Adds whitelist exceptions for false positives or intentional secrets.</div>
+                        </li>
+                        <li class="tour-feature-item">
+                            <i class="ph-fill ph-funnel" style="color:var(--argus-periwinkle)"></i>
+                            <div><strong>Results Tabs &amp; Quick Search:</strong> Toggle between Active Findings and Resolved items, or filter in real time.</div>
                         </li>
                     </ul>
                     <div class="tour-highlight-box">
-                        👉 <em>Clicking any file row opens the Deep Visualizer preview!</em>
+                        👉 <em>Click any file row to launch the Deep Remediation Inspector!</em>
                     </div>
                 `,
-                nextText: 'Next: Deep Visualizer →',
+                nextText: 'Next: Remediation Inspector →',
                 onEnter: () => {
                     this.injectDemoResults();
                 }
@@ -767,22 +1031,26 @@ class ArgusTourEngine {
                 view: 'results',
                 target: '#preview-modal .modal-content',
                 placement: 'right',
-                title: '5. Deep Visualizer & Bounding Boxes',
+                title: '5. Deep Remediation Inspector &amp; Hotkeys',
                 badge: 'Step 6 of 8',
                 html: `
-                    <p>The <strong>Argus Deep Visualizer</strong> reveals the exact locations of detected PII leaks:</p>
+                    <p>The <strong>Argus Remediation Inspector</strong> provides full contextual control over every detected finding:</p>
                     <ul class="tour-feature-list">
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-highlighter" style="color:var(--warning)"></i>
-                            <div><strong>Line-by-Line Regex Highlights:</strong> Text and code files highlight matched secrets with exact column precision.</div>
+                            <i class="ph-fill ph-list-numbers" style="color:var(--argus-teal)"></i>
+                            <div><strong>Inline Finding Action Bars:</strong> Every flagged line features dedicated <kbd>R</kbd> Redact, <kbd>S</kbd> Safe, and <kbd>D</kbd> Trash buttons.</div>
                         </li>
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-bounding-box" style="color:var(--danger)"></i>
-                            <div><strong>Vision AI Bounding Boxes:</strong> Identifies ID cards, driver licenses, SSN numbers, and signatures on scanned photos.</div>
+                            <i class="ph-fill ph-keyboard" style="color:var(--argus-periwinkle)"></i>
+                            <div><strong>Power-User Single-Key Shortcuts:</strong> Press <kbd>J</kbd>/<kbd>K</kbd> to jump between findings, <kbd>R</kbd> to redact, <kbd>S</kbd> to whitelist, or <kbd>D</kbd> to trash.</div>
                         </li>
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-crosshair" style="color:var(--argus-teal)"></i>
-                            <div><strong>Quick-Jump Finding Chips:</strong> Click any chip at the top to jump directly to the detection.</div>
+                            <i class="ph-fill ph-arrows-clockwise" style="color:var(--argus-green)"></i>
+                            <div><strong>Automatic 7-Day Backups:</strong> Pre-redaction originals are archived in <code>.argus_backups/</code> with 1-click restore.</div>
+                        </li>
+                        <li class="tour-feature-item">
+                            <i class="ph-fill ph-lock-key" style="color:var(--warning)"></i>
+                            <div><strong>Permission &amp; Integrity Guard:</strong> Single-click elevation for read-only files and tamper detection.</div>
                         </li>
                     </ul>
                     <div style="display:flex; gap:8px; margin-top:12px;">
@@ -790,7 +1058,7 @@ class ArgusTourEngine {
                         <button id="tour-preview-img-btn" class="btn btn-secondary btn-small" style="flex:1; font-size:12px;"><i class="ph-fill ph-image"></i> Preview Vision AI (.png)</button>
                     </div>
                 `,
-                nextText: 'Next: Settings & Hardware →',
+                nextText: 'Next: Allowed Exceptions & Safety →',
                 onEnter: () => {
                     const modal = document.getElementById('preview-modal');
                     if (modal) modal.classList.add('tour-preview-mode');
@@ -813,23 +1081,23 @@ class ArgusTourEngine {
             {
                 id: 'settings-config',
                 view: 'settings',
-                target: '#settings .settings-card',
-                title: '6. Hardware Profiling & Automation',
+                target: '#allowed-exceptions-card',
+                title: '6. Allowed Exceptions &amp; Safety Preferences',
                 badge: 'Step 7 of 8',
                 html: `
-                    <p>Argus adapts to your computer's resources:</p>
+                    <p>Customize your remediation safety rules and whitelisted exceptions:</p>
                     <ul class="tour-feature-list">
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-cpu" style="color:var(--argus-periwinkle)"></i>
-                            <div><strong>RAM Auto-Tuning:</strong> Automatically allocates parallel threads and optimal image downscaling (1024px) for your hardware.</div>
+                            <i class="ph-fill ph-shield-check" style="color:var(--argus-teal)"></i>
+                            <div><strong>Allowed Exceptions (.argusignore):</strong> Manage whitelisted files, paths, and match values to ignore in future scans.</div>
                         </li>
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-clock" style="color:var(--argus-teal)"></i>
-                            <div><strong>Daily Scheduled Scans:</strong> Runs automated background sentinel sweeps at your chosen time.</div>
+                            <i class="ph-fill ph-asterisk-simple" style="color:var(--argus-periwinkle)"></i>
+                            <div><strong>Masking Style:</strong> Choose between standard <code>[REDACTED]</code>, format-preserving <code>XXX-XX-6789</code>, or <code>[CONFIDENTIAL]</code>.</div>
                         </li>
                         <li class="tour-feature-item">
-                            <i class="ph-fill ph-shield-check" style="color:var(--argus-green)"></i>
-                            <div><strong>Automatic Remediation:</strong> Option to automatically delete verified compromised files.</div>
+                            <i class="ph-fill ph-recycle" style="color:var(--argus-green)"></i>
+                            <div><strong>Safe Deletion Target:</strong> Defaults to system Recycle Bin / Trash rather than permanent unrecoverable deletion.</div>
                         </li>
                     </ul>
                 `,
@@ -839,7 +1107,7 @@ class ArgusTourEngine {
                 id: 'model-management',
                 view: 'settings',
                 target: '#model-provider-row',
-                title: '7. Local Model Engine & Recommendations',
+                title: '7. Local Model Engine & Hardware Profiling',
                 badge: 'Step 8 of 8',
                 html: `
                     <p>Argus supports <strong>two AI inference engines</strong> for maximum flexibility:</p>
@@ -1330,6 +1598,8 @@ function initApp() {
                 const ollamaVisionModel = document.getElementById('ollama-vision-model');
                 const ollamaTextModel = document.getElementById('ollama-text-model');
                 const modelsFolderPath = document.getElementById('models-folder-path');
+                const redactionMaskSelect = document.getElementById('redaction-mask-select');
+                const deletionModeSelect = document.getElementById('deletion-mode-select');
                 
                 if (addressInput) addressInput.value = settings.ollama_address || "http://127.0.0.1:11434";
                 if (autoDeleteToggle) autoDeleteToggle.checked = settings.auto_delete || false;
@@ -1339,6 +1609,71 @@ function initApp() {
                 if (concurrencySelect) concurrencySelect.value = settings.concurrency || "auto";
                 if (imageOptSelect) imageOptSelect.value = settings.image_optimization || "medium";
                 if (textModeSelect) textModeSelect.value = settings.text_scan_mode || "regex_llm";
+
+                if (redactionMaskSelect) redactionMaskSelect.value = settings.redaction_mask_pattern || "redacted";
+                if (deletionModeSelect) deletionModeSelect.value = settings.deletion_mode || "trash";
+
+                // Load Allowed Exceptions
+                async function loadAllowedExceptions() {
+                    const listEl = document.getElementById('exceptions-list');
+                    if (!listEl || !pywebview.api.get_allowed_exceptions) return;
+                    try {
+                        const exceptions = await pywebview.api.get_allowed_exceptions();
+                        if (!exceptions || exceptions.length === 0) {
+                            listEl.innerHTML = '<div class="empty-exceptions-state"><i class="ph ph-shield"></i><p>No allowed exceptions configured yet.</p></div>';
+                            return;
+                        }
+                        listEl.innerHTML = exceptions.map(ex => `
+                            <div class="exception-item" id="exception-${ex.id}">
+                                <div class="exception-details">
+                                    <span class="exception-path" title="${escapeHtml(ex.target)}">${escapeHtml(ex.target)}</span>
+                                    <div class="exception-meta">
+                                        <span class="chip" style="font-size:10.5px; padding:1px 6px;">${escapeHtml(ex.type)}</span>
+                                        ${ex.pattern_name ? `<span style="font-weight:600; color:var(--argus-teal);">${escapeHtml(ex.pattern_name)}</span>` : ''}
+                                        <span>Added: ${new Date(ex.added_at * 1000).toLocaleDateString()}</span>
+                                    </div>
+                                </div>
+                                <button class="btn-icon delete-exception-btn" data-id="${ex.id}" title="Remove rule and resume scanning this target">
+                                    <i class="ph ph-trash" style="color:var(--danger)"></i>
+                                </button>
+                            </div>
+                        `).join('');
+
+                        listEl.querySelectorAll('.delete-exception-btn').forEach(btn => {
+                            btn.addEventListener('click', async (e) => {
+                                e.stopPropagation();
+                                const id = btn.getAttribute('data-id');
+                                if (pywebview.api.remove_allowed_exception) {
+                                    await pywebview.api.remove_allowed_exception(id);
+                                    await loadAllowedExceptions();
+                                    loadResults();
+                                }
+                            });
+                        });
+                    } catch (e) {
+                        console.error('Error loading exceptions:', e);
+                    }
+                }
+                loadAllowedExceptions();
+
+                const refreshExceptionsBtn = document.getElementById('refresh-exceptions-btn');
+                if (refreshExceptionsBtn) {
+                    refreshExceptionsBtn.addEventListener('click', loadAllowedExceptions);
+                }
+
+                const pruneBackupsBtn = document.getElementById('prune-backups-btn');
+                if (pruneBackupsBtn) {
+                    pruneBackupsBtn.addEventListener('click', async () => {
+                        if (pywebview.api.prune_backups) {
+                            pruneBackupsBtn.disabled = true;
+                            pruneBackupsBtn.innerHTML = '<i class="ph ph-spinner spin"></i> Pruning...';
+                            const res = await pywebview.api.prune_backups(7);
+                            pruneBackupsBtn.disabled = false;
+                            pruneBackupsBtn.innerHTML = '<i class="ph ph-broom"></i> Prune Old Backups';
+                            alert(`Pruned ${res?.pruned_count || 0} backup files older than 7 days.`);
+                        }
+                    });
+                }
 
                 // Model provider init
                 if (ollamaVisionModel) ollamaVisionModel.value = settings.vision_model_name || "gemma4:12b";
@@ -1727,6 +2062,9 @@ function initApp() {
                         settings.image_optimization = imageOptSelect ? imageOptSelect.value : "medium";
                         settings.text_scan_mode = textModeSelect ? textModeSelect.value : "regex_llm";
 
+                        settings.redaction_mask_pattern = redactionMaskSelect ? redactionMaskSelect.value : "redacted";
+                        settings.deletion_mode = deletionModeSelect ? deletionModeSelect.value : "trash";
+
                         // Model provider settings
                         const selectedProvider = document.querySelector('input[name="model-provider"]:checked');
                         settings.model_provider = selectedProvider ? selectedProvider.value : "ollama";
@@ -1762,16 +2100,29 @@ function initApp() {
 
                 const modeInput = document.querySelector('input[name="scan-mode"]:checked');
                 const rescanAll = modeInput ? modeInput.value === "full" : false;
-                const success = await pywebview.api.start_scan(rescanAll);
-                if (success) {
-                    const prog = document.getElementById('scan-progress-container');
-                    if (prog) prog.classList.remove('hidden');
-                    const scanStatus = document.getElementById('sidebar-scan-status');
-                    if (scanStatus) scanStatus.classList.remove('hidden');
-                    startScanBtn.classList.add('hidden');
-                    startProgressPolling();
-                } else {
-                    alert('Please add at least one directory to inspect first.');
+                
+                startScanBtn.disabled = true;
+                const origHtml = startScanBtn.innerHTML;
+                startScanBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Initializing...';
+
+                try {
+                    const res = await pywebview.api.start_scan(rescanAll);
+                    const isSuccess = (res === true) || (res && res.success === true);
+                    
+                    if (isSuccess) {
+                        const prog = document.getElementById('scan-progress-container');
+                        if (prog) prog.classList.remove('hidden');
+                        const scanStatus = document.getElementById('sidebar-scan-status');
+                        if (scanStatus) scanStatus.classList.remove('hidden');
+                        startScanBtn.classList.add('hidden');
+                        startProgressPolling();
+                    } else {
+                        const msg = (res && res.message) ? res.message : 'Please add at least one directory to inspect first.';
+                        alert(msg);
+                    }
+                } finally {
+                    startScanBtn.disabled = false;
+                    startScanBtn.innerHTML = origHtml;
                 }
             });
         }
@@ -1779,10 +2130,56 @@ function initApp() {
         const stopScanBtn = document.getElementById('stop-scan-btn');
         if (stopScanBtn) {
             stopScanBtn.addEventListener('click', async () => {
+                stopScanBtn.disabled = true;
+                const origHtml = stopScanBtn.innerHTML;
+                stopScanBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Aborting...';
+
                 if (window.pywebview?.api?.stop_scan) {
                     await pywebview.api.stop_scan();
                 }
+
+                // Poll briefly until backend is_scanning is confirmed false
+                let attempts = 0;
+                while (attempts < 15) {
+                    try {
+                        const prog = await pywebview.api.get_scan_progress();
+                        if (!prog || !prog.is_scanning) break;
+                    } catch (e) {
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 150));
+                    attempts++;
+                }
+
+                stopScanBtn.disabled = false;
+                stopScanBtn.innerHTML = origHtml;
                 stopProgressPolling();
+            });
+        }
+
+        // Results Tabs & Search Filter
+        const tabActive = document.getElementById('tab-active-findings');
+        const tabResolved = document.getElementById('tab-resolved-findings');
+        if (tabActive && tabResolved) {
+            tabActive.addEventListener('click', () => {
+                currentResultsTab = 'active';
+                tabActive.classList.add('active');
+                tabResolved.classList.remove('active');
+                renderResultsUI(currentResults);
+            });
+            tabResolved.addEventListener('click', () => {
+                currentResultsTab = 'resolved';
+                tabResolved.classList.add('active');
+                tabActive.classList.remove('active');
+                renderResultsUI(currentResults);
+            });
+        }
+
+        const searchInput = document.getElementById('results-search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                resultsSearchQuery = e.target.value.trim();
+                renderResultsUI(currentResults);
             });
         }
 
@@ -1800,6 +2197,36 @@ function initApp() {
             });
         }
 
+        // Batch Redact Selected
+        const batchRedactSelectedBtn = document.getElementById('batch-redact-selected-btn');
+        if (batchRedactSelectedBtn) {
+            batchRedactSelectedBtn.addEventListener('click', async () => {
+                if (!window.pywebview?.api) return;
+                const selectedFiles = [];
+                document.querySelectorAll('.result-checkbox:checked').forEach(cb => {
+                    selectedFiles.push(cb.getAttribute('data-file'));
+                });
+
+                if (selectedFiles.length === 0) {
+                    alert('Please select at least one file to redact.');
+                    return;
+                }
+
+                batchRedactSelectedBtn.disabled = true;
+                batchRedactSelectedBtn.innerHTML = '<i class="ph ph-spinner spin"></i> Redacting...';
+
+                for (const file of selectedFiles) {
+                    if (pywebview.api.batch_redact) {
+                        await pywebview.api.batch_redact(file);
+                    }
+                }
+
+                batchRedactSelectedBtn.disabled = false;
+                batchRedactSelectedBtn.innerHTML = '<i class="ph-bold ph-eraser"></i> Redact Selected';
+                loadResults();
+            });
+        }
+
         const markSelectedBtn = document.getElementById('mark-selected-ok-btn');
         if (markSelectedBtn) {
             markSelectedBtn.addEventListener('click', async () => {
@@ -1810,11 +2237,17 @@ function initApp() {
                 });
 
                 if (selectedFiles.length === 0) {
-                    alert('Please select at least one file to mark as OK.');
+                    alert('Please select at least one file to mark as Safe.');
                     return;
                 }
                 
-                await pywebview.api.mark_files_ok(selectedFiles);
+                for (const file of selectedFiles) {
+                    if (pywebview.api.mark_as_safe) {
+                        await pywebview.api.mark_as_safe(file);
+                    } else {
+                        await pywebview.api.mark_file_ok(file);
+                    }
+                }
                 loadResults();
             });
         }
@@ -1830,19 +2263,59 @@ function initApp() {
 
                 if (selectedFiles.length === 0) return;
                 
-                if (confirm(`Permanently delete ${selectedFiles.length} flagged files from disk?`)) {
-                    await pywebview.api.delete_files(selectedFiles);
+                if (confirm(`Move ${selectedFiles.length} flagged files to Recycle Bin / Trash?`)) {
+                    if (pywebview.api.batch_delete_files) {
+                        await pywebview.api.batch_delete_files(selectedFiles);
+                    } else {
+                        await pywebview.api.delete_files(selectedFiles);
+                    }
                     loadResults();
                 }
             });
         }
 
-        // Modal actions
+        // Modal Header Batch Redact Button
+        const modalBatchRedactBtn = document.getElementById('modal-batch-redact-btn');
+        if (modalBatchRedactBtn) {
+            modalBatchRedactBtn.addEventListener('click', async () => {
+                if (!currentPreviewFile || !pywebview.api.batch_redact) return;
+                modalBatchRedactBtn.disabled = true;
+                modalBatchRedactBtn.innerHTML = '<i class="ph ph-spinner spin"></i> Redacting...';
+                
+                const res = await pywebview.api.batch_redact(currentPreviewFile, null, currentPreviewData?.checksum);
+                modalBatchRedactBtn.disabled = false;
+                modalBatchRedactBtn.innerHTML = '<i class="ph-bold ph-eraser"></i> Redact All in File';
+                
+                if (res && res.success) {
+                    await showPreview(currentPreviewFile);
+                    loadResults();
+                } else if (res && res.error === 'file_modified') {
+                    const alertBanner = document.getElementById('preview-alert-banner');
+                    if (alertBanner) {
+                        alertBanner.className = 'preview-alert-banner alert-modified';
+                        alertBanner.innerHTML = `
+                            <span><i class="ph-bold ph-warning"></i> <strong>File Modified:</strong> File was modified externally on disk.</span>
+                            <button id="alert-reload-btn" class="btn btn-secondary btn-small"><i class="ph-bold ph-arrows-clockwise"></i> Reload Preview</button>
+                        `;
+                        alertBanner.classList.remove('hidden');
+                        document.getElementById('alert-reload-btn')?.addEventListener('click', () => showPreview(currentPreviewFile));
+                    }
+                } else {
+                    alert(res?.message || 'Redaction failed');
+                }
+            });
+        }
+
+        // Modal footer actions
         const modalMarkOkBtn = document.getElementById('modal-mark-ok-btn');
         if (modalMarkOkBtn) {
             modalMarkOkBtn.addEventListener('click', async () => {
                 if (currentPreviewFile && window.pywebview?.api) {
-                    await pywebview.api.mark_file_ok(currentPreviewFile);
+                    if (pywebview.api.mark_as_safe) {
+                        await pywebview.api.mark_as_safe(currentPreviewFile);
+                    } else {
+                        await pywebview.api.mark_file_ok(currentPreviewFile);
+                    }
                     const modal = document.getElementById('preview-modal');
                     if (modal) modal.classList.add('hidden');
                     loadResults();
@@ -1855,8 +2328,12 @@ function initApp() {
             modalDeleteBtn.addEventListener('click', async () => {
                 if (currentPreviewFile && window.pywebview?.api) {
                     const fileName = currentPreviewFile.split('\\').pop().split('/').pop();
-                    if (confirm(`Permanently delete "${fileName}"?`)) {
-                        await pywebview.api.delete_files([currentPreviewFile]);
+                    if (confirm(`Move "${fileName}" to Recycle Bin / System Trash?`)) {
+                        if (pywebview.api.delete_file_item) {
+                            await pywebview.api.delete_file_item(currentPreviewFile);
+                        } else {
+                            await pywebview.api.delete_files([currentPreviewFile]);
+                        }
                         const modal = document.getElementById('preview-modal');
                         if (modal) modal.classList.add('hidden');
                         loadResults();
@@ -1873,6 +2350,54 @@ function initApp() {
                 if (modal) modal.classList.add('hidden');
             });
         }
+
+        // ---------------------------------------------------------
+        // Power Keyboard Shortcuts (R, D, S, J, K, Esc)
+        // ---------------------------------------------------------
+        window.addEventListener('keydown', async (e) => {
+            // Ignore if typing inside input / textarea / select
+            const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+            if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+                return;
+            }
+
+            const modal = document.getElementById('preview-modal');
+            const isModalOpen = modal && !modal.classList.contains('hidden');
+
+            if (isModalOpen) {
+                if (e.key === 'Escape') {
+                    modal.classList.add('hidden');
+                    return;
+                }
+
+                if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (currentPreviewData && currentPreviewData.highlights && currentPreviewData.highlights.length > 0) {
+                        focusFindingIndex(activeFindingIndex + 1);
+                    }
+                } else if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (currentPreviewData && currentPreviewData.highlights && currentPreviewData.highlights.length > 0) {
+                        focusFindingIndex(activeFindingIndex - 1);
+                    }
+                } else if (e.key === 'r' || e.key === 'R') {
+                    e.preventDefault();
+                    if (currentPreviewData && currentPreviewData.highlights && currentPreviewData.highlights[activeFindingIndex]) {
+                        await executeRedactFinding(currentPreviewData.highlights[activeFindingIndex]);
+                    }
+                } else if (e.key === 's' || e.key === 'S') {
+                    e.preventDefault();
+                    if (currentPreviewData && currentPreviewData.highlights && currentPreviewData.highlights[activeFindingIndex]) {
+                        await executeMarkFindingSafe(currentPreviewData.highlights[activeFindingIndex]);
+                    } else {
+                        await executeMarkFindingSafe(null);
+                    }
+                } else if (e.key === 'd' || e.key === 'D') {
+                    e.preventDefault();
+                    await executeDeleteFile();
+                }
+            }
+        });
 
     } catch (err) {
         console.error("Error initializing Argus application:", err);
