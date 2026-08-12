@@ -71,7 +71,7 @@ class Api:
     def select_folder(self):
         if self._window:
             result = self._window.create_file_dialog(
-                webview.FOLDER_DIALOG, allow_multiple=True
+                webview.FileDialog.FOLDER, allow_multiple=True
             )
             return result if result else []
         return []
@@ -464,7 +464,7 @@ class Api:
         """Open a native folder picker for the models directory."""
         if self._window:
             result = self._window.create_file_dialog(
-                webview.FOLDER_DIALOG, allow_multiple=False
+                webview.FileDialog.FOLDER, allow_multiple=False
             )
             if result and len(result) > 0:
                 folder_path = result[0]
