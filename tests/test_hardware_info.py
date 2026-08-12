@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 from backend.hardware_info import (
     get_cpu_info, get_gpu_info, get_ram_info,
     get_full_system_specs, compute_fit_score,
@@ -50,9 +50,48 @@ class TestCPUInfo:
     @patch("subprocess.check_output", side_effect=Exception("cmd failed"))
     def test_fallback_on_error(self, mock_sub):
         info = get_cpu_info()
-        # Should still return valid data via fallback
         assert info["cpu_threads"] >= 1
         assert info["cpu_cores"] >= 1
+
+    @patch("sys.platform", "linux")
+    def test_cpu_info_linux(self):
+        fake_cpuinfo = (
+            "model name\t: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz\n"
+            "physical id\t: 0\n"
+            "core id\t\t: 0\n"
+            "physical id\t: 0\n"
+            "core id\t\t: 1\n"
+        )
+        with patch("builtins.open", mock_open(read_data=fake_cpuinfo)):
+            info = get_cpu_info()
+            assert "Intel" in info["cpu_name"]
+            assert info["cpu_cores"] == 2
+
+    @patch("sys.platform", "darwin")
+    def test_cpu_info_darwin(self):
+        def fake_check_output(cmd, **kwargs):
+            if "machdep.cpu.brand_string" in cmd:
+                return "Apple M2 Max\n"
+            if "hw.physicalcpu" in cmd:
+                return "12\n"
+            return ""
+
+        with patch("subprocess.check_output", side_effect=fake_check_output):
+            info = get_cpu_info()
+            assert info["cpu_name"] == "Apple M2 Max"
+            assert info["cpu_cores"] == 12
+
+    @patch("sys.platform", "win32")
+    def test_cpu_info_win32(self):
+        def fake_check_output(cmd, **kwargs):
+            if "NumberOfCores" in cmd:
+                return "NumberOfCores\n8\n"
+            return "Name\nAMD Ryzen 7 5800X\n"
+
+        with patch("subprocess.check_output", side_effect=fake_check_output):
+            info = get_cpu_info()
+            assert "Ryzen" in info["cpu_name"]
+            assert info["cpu_cores"] == 8
 
 
 class TestGPUInfo:
@@ -83,6 +122,31 @@ class TestRAMInfo:
         assert "ram_available_gb" in info
         assert info["ram_total_gb"] > 0
         assert info["ram_available_gb"] > 0
+
+    @patch("sys.platform", "linux")
+    @patch("backend.scanner.get_system_ram", return_value=16 * 1024**3)
+    def test_ram_info_linux(self, mock_ram):
+        fake_meminfo = (
+            "MemTotal:       16384000 kB\n"
+            "MemAvailable:    8192000 kB\n"
+        )
+        with patch("builtins.open", mock_open(read_data=fake_meminfo)):
+            info = get_ram_info()
+            assert info["ram_total_gb"] == 16.0
+            assert info["ram_available_gb"] > 0
+
+    @patch("sys.platform", "darwin")
+    @patch("backend.scanner.get_system_ram", return_value=16 * 1024**3)
+    def test_ram_info_darwin(self, mock_ram):
+        fake_vm_stat = (
+            "Mach Virtual Memory Statistics: (page size of 4096 bytes)\n"
+            "Pages free:                              1000000.\n"
+            "Pages inactive:                           500000.\n"
+        )
+        with patch("subprocess.check_output", return_value=fake_vm_stat):
+            info = get_ram_info()
+            assert info["ram_total_gb"] == 16.0
+            assert info["ram_available_gb"] > 0
 
 
 class TestFullSystemSpecs:
@@ -145,6 +209,14 @@ class TestComputeFitScore:
         assert score <= 100
         assert tier == "Excellent"
 
+    def test_insufficient_headroom_too_large(self):
+        model = {"size_gb": 7.0, "min_ram_gb": 6, "rec_ram_gb": 8}
+        # 7.0 * 1.2 = 8.4GB required, total_ram is 8.0 => headroom <= 0
+        specs = {"ram_total_gb": 8.0, "gpu_vram_gb": None}
+        score, tier = compute_fit_score(model, specs)
+        assert score == 0
+        assert tier == "Too Large"
+
 
 class TestGetRecommendedModels:
     @patch("backend.hardware_info.get_full_system_specs", return_value={
@@ -176,7 +248,6 @@ class TestGetRecommendedModels:
             "gpu_vram_gb": None
         }
         results = get_recommended_models(specs)
-        # With 4GB RAM, many models should be "Too Large"
         too_large = [m for m in results if m["fit_tier"] == "Too Large"]
         assert len(too_large) > 0
 
@@ -186,6 +257,5 @@ class TestGetRecommendedModels:
             "gpu_vram_gb": 48.0
         }
         results = get_recommended_models(specs)
-        # With 128GB RAM, nothing should be "Too Large"
         too_large = [m for m in results if m["fit_tier"] == "Too Large"]
         assert len(too_large) == 0

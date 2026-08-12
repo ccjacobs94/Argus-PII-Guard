@@ -61,6 +61,35 @@ class TestModelDownloader:
             assert target.exists()
             assert target.read_bytes() == fake_data
 
+    def test_download_worker_target_already_exists(self, tmp_path):
+        dest_folder = str(tmp_path)
+        filename = "existing_model.gguf"
+        target = tmp_path / filename
+        target.write_bytes(b"OLD_CONTENT")
+        fake_data = b"NEW_GGUF_DATA"
+
+        mock_response = MagicMock()
+        mock_response.headers = {"Content-Length": str(len(fake_data))}
+        mock_response.read.side_effect = [fake_data, b""]
+
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            success, msg = downloader.start_download("http://example.com/existing.gguf", dest_folder, filename)
+            assert success is True
+
+            if downloader._download_thread:
+                downloader._download_thread.join(timeout=2.0)
+
+            status = downloader.get_download_status()
+            assert status["status"] == "completed"
+            assert target.read_bytes() == fake_data
+
+    def test_download_worker_mkdir_failure(self):
+        with patch.object(Path, "mkdir", side_effect=PermissionError("Cannot create folder")):
+            downloader._download_worker("http://example.com/m.gguf", "/forbidden/dir", "m.gguf")
+            status = downloader.get_download_status()
+            assert status["status"] == "error"
+            assert "Failed to create directory" in status["error"]
+
     def test_download_worker_cancellation(self, tmp_path):
         dest_folder = str(tmp_path)
         filename = "cancel_model.gguf"
