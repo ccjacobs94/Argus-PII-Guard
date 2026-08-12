@@ -5,9 +5,41 @@ Unit and Integration Tests for Cross-Platform Native Installer & Desktop Integra
 import os
 import sys
 import json
+import platform
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+
+@pytest.fixture
+def mock_winreg():
+    """
+    On non-Windows platforms (Linux CI / macOS), `winreg` does not exist as a
+    built-in module.  backend/installer.py uses ``import winreg`` *inside*
+    function bodies that are only reached when platform.system() == "Windows".
+    When tests force that branch via mock, the lazy import fails with
+    ModuleNotFoundError.
+
+    This fixture pre-injects a MagicMock as the `winreg` module into
+    sys.modules so the import succeeds on every OS, while keeping the mock
+    transparent to the assertions.
+    """
+    if platform.system() != "Windows":
+        fake_winreg = MagicMock()
+        # Provide the HKEY constants that installer.py references
+        fake_winreg.HKEY_CURRENT_USER = 0x80000001
+        fake_winreg.HKEY_LOCAL_MACHINE = 0x80000002
+        fake_winreg.KEY_READ = 0x20019
+        fake_winreg.KEY_WRITE = 0x20006
+        fake_winreg.REG_EXPAND_SZ = 2
+        fake_winreg.REG_SZ = 1
+        fake_winreg.REG_DWORD = 4
+        sys.modules["winreg"] = fake_winreg
+        yield fake_winreg
+        del sys.modules["winreg"]
+    else:
+        import winreg
+        yield winreg
 
 from backend.installer import (
     InstallerEngine,
@@ -144,16 +176,16 @@ class TestInstallerEngine:
             assert str(bashrc) in res["method"]
             assert str(bin_dir) in bashrc.read_text(encoding="utf-8")
 
-    def test_add_to_path_env_windows(self, tmp_path):
+    def test_add_to_path_env_windows(self, tmp_path, mock_winreg):
         engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=True)
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
 
         mock_key = MagicMock()
         with patch("platform.system", return_value="Windows"), \
-             patch("winreg.OpenKey", return_value=mock_key), \
-             patch("winreg.QueryValueEx", return_value=("C:\\Path", 1)), \
-             patch("winreg.SetValueEx") as mock_set:
+             patch("winreg.OpenKey", return_value=mock_key, create=True), \
+             patch("winreg.QueryValueEx", return_value=("C:\\Path", 1), create=True), \
+             patch("winreg.SetValueEx", create=True) as mock_set:
             res = engine.add_to_path_env(bin_dir)
             assert res["success"] is True
             mock_set.assert_called_once()
@@ -225,7 +257,7 @@ class TestInstallerEngine:
             assert res["success"] is False
             assert res["error"] == "permission_denied"
 
-    def test_uninstaller_windows_registry(self, tmp_path):
+    def test_uninstaller_windows_registry(self, tmp_path, mock_winreg):
         target = tmp_path / "uninst_target"
         target.mkdir()
         manifest = target / "install_manifest.json"
@@ -233,7 +265,7 @@ class TestInstallerEngine:
 
         uninstaller = UninstallerEngine(install_dir=target)
         with patch("platform.system", return_value="Windows"), \
-             patch("winreg.DeleteKey") as mock_del:
+             patch("winreg.DeleteKey", create=True) as mock_del:
             res = uninstaller.uninstall()
             assert res["success"] is True
             assert res["removed_registry"] is True
