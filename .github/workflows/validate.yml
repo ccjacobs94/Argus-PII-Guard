@@ -1,0 +1,91 @@
+name: Validation & Testing Pipeline
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  validate:
+    name: Validation & Quality Gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+
+      - name: Cache Virtual Environment
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.venv
+          key: ${{ runner.os }}-venv-3.11-${{ hashFiles('**/requirements.txt') }}
+
+
+      - name: Install Dependencies
+        if: steps.cache-venv.outputs.cache-hit != 'true'
+        run: |
+          python -m venv ~/.venv
+          ~/.venv/bin/python -m pip install --upgrade pip
+          ~/.venv/bin/pip install --prefer-binary -r requirements.txt
+
+      - name: Activate Virtual Environment
+        run: |
+          echo "$HOME/.venv/bin" >> $GITHUB_PATH
+
+
+      - name: "Step 1: Syntax & Bytecode Compilation"
+        run: |
+          python -m py_compile backend/main.py backend/scanner.py backend/state.py
+
+      - name: "Step 2: Full Test Suite Execution"
+        id: run-tests
+        run: |
+          set -o pipefail
+          pytest tests/ -v -ra --tb=short 2>&1 | tee pytest_output.log
+
+      - name: Publish Test Summary
+        if: always()
+        run: |
+          if [ -f pytest_output.log ]; then
+            echo "### Pytest Execution Summary" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 100 pytest_output.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: "Step 3: Coverage Gate Verification"
+        id: run-coverage
+        run: |
+          set -o pipefail
+          pytest --cov=backend --cov-report=term-missing --cov-fail-under=85 2>&1 | tee coverage_output.log
+
+
+      - name: Publish Coverage Summary
+        if: always()
+        run: |
+          if [ -f coverage_output.log ]; then
+            echo "### Coverage Verification Summary" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -n 100 coverage_output.log >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Test and Coverage Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-and-coverage-logs
+          path: |
+            pytest_output.log
+            coverage_output.log
+
+
+

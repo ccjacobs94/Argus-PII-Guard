@@ -267,13 +267,17 @@ def test_schedule_loop_triggered():
                 mock_scan.assert_called_once()
 
 def test_main_entrypoint():
-    from backend.main import main, get_resource_path
-    with patch("threading.Thread") as mock_thread:
-        with patch("webview.create_window") as mock_create_window:
-            with patch("webview.start") as mock_start:
-                main()
-                mock_create_window.assert_called_once()
-                mock_start.assert_called_once()
+    from backend.main import main
+    with patch("backend.main.threading.Thread") as mock_thread, \
+         patch("backend.main.webview.create_window") as mock_create_window, \
+         patch("backend.main.webview.start") as mock_start:
+        mock_t = MagicMock()
+        mock_thread.return_value = mock_t
+        main()
+        mock_create_window.assert_called_once()
+        mock_start.assert_called_once()
+        mock_t.start.assert_called_once()
+
 
 def test_get_resource_path_dev_mode():
     from backend.main import get_resource_path
@@ -458,4 +462,6 @@ def test_api_get_model_download_status(api_instance):
         status = api_instance.get_model_download_status()
         assert status["status"] == "downloading"
         assert status["percent"] == 45.0
+
+
 

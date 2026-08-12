@@ -55,6 +55,21 @@ def test_get_system_ram_exception():
             fallback_ram = get_system_ram()
             assert fallback_ram == 8 * 1024 * 1024 * 1024
 
+def test_get_system_ram_darwin():
+    with patch("sys.platform", "darwin"):
+        with patch("subprocess.check_output", return_value=b"17179869184\n"):
+            ram = get_system_ram()
+            assert ram == 17179869184
+
+def test_get_system_ram_linux():
+    from unittest.mock import mock_open
+    fake_meminfo = "MemTotal:       32890624 kB\nMemFree: 1000 kB\n"
+    with patch("sys.platform", "linux"):
+        with patch("builtins.open", mock_open(read_data=fake_meminfo)):
+            ram = get_system_ram()
+            assert ram == 32890624 * 1024
+
+
 def test_pii_regex_patterns():
     ssn_text = "The user SSN is 123-45-6789 and needs protection."
     assert PII_PATTERNS["SSN"].search(ssn_text) is not None
@@ -465,16 +480,15 @@ def test_get_inference_response_ollama():
             mock_client.chat.assert_called_once()
 
 def test_get_inference_response_local_gguf_not_available():
+    import backend.local_llm as real_llm
     with patch("backend.scanner.get_model_provider", return_value="local_gguf"):
-        mock_llm = MagicMock()
-        mock_llm.is_available.return_value = False
-        with patch.dict("sys.modules", {"backend.local_llm": mock_llm}):
-            with patch("backend.scanner.local_llm", mock_llm, create=True):
-                with pytest.raises(RuntimeError, match="not installed"):
-                    get_inference_response(
-                        messages=[{"role": "user", "content": "test"}],
-                        model_name="test"
-                    )
+        with patch.object(real_llm, "is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="not installed"):
+                get_inference_response(
+                    messages=[{"role": "user", "content": "test"}],
+                    model_name="test"
+                )
+
 
 def test_get_inference_response_local_gguf_no_model():
     import backend.local_llm as real_llm
