@@ -33,10 +33,39 @@
 
 ## 💻 Installation & Usage
 
-### Option 1: Running Pre-Built Windows Desktop Application
-1. Download the latest installer `Argus_PII_Guard_v1.0.5_Setup.exe` from the [Releases](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.5) page.
-2. Run the setup wizard to install Argus PII Guard to your Desktop and Start Menu.
-3. Launch **Argus PII Guard**.
+### Option 1: Running Cross-Platform Native Installer (Windows, macOS, Linux)
+
+After downloading the platform build archive (`Argus_PII_Guard_v1.0.5_windows.zip` or `Argus_PII_Guard_v1.0.5_linux.tar.gz`) from [Releases](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.5):
+
+1. **Extract the Archive**:
+   Unpack the release ZIP or tarball to your preferred temporary location.
+
+2. **Run the Installer**:
+   - **Windows**:
+     Execute `native_installer.py` or run setup from PowerShell / Command Prompt:
+     ```cmd
+     python installer\native_installer.py --install
+     ```
+     *(Alternatively, double-click `Argus_PII_Guard_v1.0.5_Setup.exe` if using the Inno Setup wizard).*
+
+   - **Linux / macOS**:
+     Open a terminal inside the extracted directory and run the launcher script:
+     ```bash
+     chmod +x installer/install.sh
+     ./installer/install.sh --install
+     ```
+
+3. **Installation Modes & Options**:
+   - **System Install (Default)**: Installs to `C:\Program Files\Argus PII Guard\` (Windows), `/opt/argus-pii-guard/` (Linux), or `/Applications/Argus PII Guard.app/` (macOS), generating Start Menu, Launchpad, Desktop shortcuts, and PATH entries.
+   - **User-Scope (No Admin / Elevation Required)**:
+     ```bash
+     python installer/native_installer.py --install --user-scope
+     ```
+     Installs to `%LOCALAPPDATA%\Programs\Argus PII Guard\` (Windows), `~/.local/share/argus-pii-guard/` (Linux), or `~/Applications/Argus PII Guard.app/` (macOS).
+   - **Clean Uninstallation**:
+     ```bash
+     python installer/native_installer.py --uninstall
+     ```
 
 ---
 

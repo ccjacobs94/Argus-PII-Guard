@@ -22,6 +22,7 @@ try:
     from . import local_llm
     from . import model_downloader
     from . import remediation
+    from . import installer
 except (ImportError, ValueError):
     from backend.state import load_settings, save_settings, load_results, save_results
     from backend.scanner import start_scan_thread, stop_scan, scan_state, ensure_ollama_running, get_system_ram, get_auto_config
@@ -29,6 +30,7 @@ except (ImportError, ValueError):
     import backend.local_llm as local_llm
     import backend.model_downloader as model_downloader
     import backend.remediation as remediation
+    import backend.installer as installer
 
 import io
 from PIL import Image
@@ -540,6 +542,44 @@ class Api:
     def get_model_download_status(self):
         """Return download status telemetry dict."""
         return model_downloader.get_download_status()
+
+    def get_installation_status(self, user_scope=False):
+        """Return application installation status & path information."""
+        default_path = installer.get_default_install_path(user_scope)
+        priv_check = installer.check_privileges(default_path)
+        manifest_path = default_path / "install_manifest.json"
+        is_installed = manifest_path.exists()
+        
+        manifest_info = {}
+        if is_installed:
+            try:
+                import json
+                manifest_info = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+                
+        return {
+            "is_installed": is_installed,
+            "default_path": str(default_path),
+            "privileges": priv_check,
+            "manifest": manifest_info
+        }
+
+    def install_app(self, source_dir=None, target_dir=None, user_scope=False, add_to_path=True):
+        """Trigger native installation workflow."""
+        try:
+            engine = installer.InstallerEngine(source_dir=source_dir, target_dir=target_dir, user_scope=user_scope)
+            return engine.install(add_to_path=add_to_path)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def uninstall_app(self, install_dir=None):
+        """Trigger native uninstallation workflow."""
+        try:
+            engine = installer.UninstallerEngine(install_dir=install_dir)
+            return engine.uninstall()
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 def get_resource_path(relative_path):
     """

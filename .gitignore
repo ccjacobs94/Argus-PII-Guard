@@ -21,6 +21,7 @@ Output/
 cache.json
 results.json
 settings.json
+install_manifest.json
 *.log
 models/
 *.gguf
