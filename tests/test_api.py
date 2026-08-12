@@ -58,10 +58,13 @@ def test_api_check_ollama(api_instance):
         assert res["success"] is True
         assert res["message"] == "Ollama running"
 
-def test_api_start_and_stop_scan(api_instance):
-    save_settings({"folders": ["C:/TargetDir"]})
+def test_api_start_and_stop_scan(api_instance, tmp_path):
+    target_dir = tmp_path / "TargetDir"
+    target_dir.mkdir()
+    save_settings({"folders": [str(target_dir)]})
     with patch("backend.main.start_scan_thread", return_value=True) as mock_scan:
-        assert api_instance.start_scan(rescan_all=True) is True
+        res = api_instance.start_scan(rescan_all=True)
+        assert res["success"] is True
         mock_scan.assert_called_once()
         # Verify callback invoked
         callback = mock_scan.call_args[0][1]
@@ -70,9 +73,25 @@ def test_api_start_and_stop_scan(api_instance):
 
     # When folders empty
     save_settings({"folders": []})
-    assert api_instance.start_scan() is False
+    res_empty = api_instance.start_scan()
+    assert res_empty["success"] is False
+    assert res_empty["error"] == "no_directories"
 
-    assert api_instance.stop_scan() is True
+    # When folders do not exist on disk
+    save_settings({"folders": [str(tmp_path / "non_existent_folder")]})
+    res_invalid = api_instance.start_scan()
+    assert res_invalid["success"] is False
+    assert res_invalid["error"] == "invalid_directories"
+
+    # When scan thread fails to start
+    save_settings({"folders": [str(target_dir)]})
+    with patch("backend.main.start_scan_thread", return_value=False):
+        res_busy = api_instance.start_scan()
+        assert res_busy["success"] is False
+        assert res_busy["error"] == "scan_in_progress"
+
+    assert api_instance.stop_scan()["success"] is True
+
 
 def test_api_mark_file_ok_and_cache(api_instance, tmp_path):
     test_file = tmp_path / "false_positive.txt"
@@ -473,6 +492,53 @@ def test_api_get_model_download_status(api_instance):
         status = api_instance.get_model_download_status()
         assert status["status"] == "downloading"
         assert status["percent"] == 45.0
+
+
+def test_api_remediation_methods_error_handling(api_instance):
+    with patch("backend.main.remediation.redact_file_entity", side_effect=Exception("redact err")):
+        res = api_instance.redact_entity("file.txt", 1, 0, 5, "secret")
+        assert res["success"] is False
+        assert "redact err" in res["error"]
+
+    with patch("backend.main.remediation.batch_redact_file", side_effect=Exception("batch redact err")):
+        res = api_instance.batch_redact("file.txt")
+        assert res["success"] is False
+        assert "batch redact err" in res["error"]
+
+    with patch("backend.main.remediation.trash_or_delete_file", side_effect=Exception("delete err")):
+        res = api_instance.delete_file_item("file.txt")
+        assert res["success"] is False
+        assert "delete err" in res["error"]
+
+    with patch("backend.main.remediation.mark_as_safe_exception", side_effect=Exception("safe err")):
+        res = api_instance.mark_as_safe("file.txt", "match")
+        assert res["success"] is False
+        assert "safe err" in res["error"]
+
+    with patch("backend.main.remediation.get_allowed_exceptions", side_effect=Exception("list err")):
+        res = api_instance.get_allowed_exceptions()
+        assert "error" in res
+
+    with patch("backend.main.remediation.remove_allowed_exception", side_effect=Exception("remove err")):
+        res = api_instance.remove_allowed_exception("id_123")
+        assert res["success"] is False
+
+    with patch("backend.main.remediation.fix_file_permissions", side_effect=Exception("perm err")):
+        res = api_instance.fix_file_permissions("file.txt")
+        assert res["success"] is False
+
+    with patch("backend.main.remediation.list_backups", side_effect=Exception("backup err")):
+        res = api_instance.get_backups_list()
+        assert "error" in res
+
+    with patch("backend.main.remediation.restore_backup", side_effect=Exception("restore err")):
+        res = api_instance.restore_backup_file("id_123")
+        assert res["success"] is False
+
+    with patch("backend.main.remediation.prune_expired_backups", side_effect=Exception("prune err")):
+        res = api_instance.prune_backups()
+        assert res["success"] is False
+
 
 
 

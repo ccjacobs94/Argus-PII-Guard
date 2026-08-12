@@ -432,7 +432,7 @@ def parse_ai_response(raw_output: str) -> dict:
             "snippets": []
         }
 
-def locate_text_pii_matches(content: str, ai_snippets: list = None) -> list:
+def locate_text_pii_matches(content: str, ai_snippets: list = None, file_path: str = None) -> list:
     """
     Locates exact line numbers, character positions, and match strings
     for regex patterns and AI-flagged snippets in text content.
@@ -492,6 +492,19 @@ def locate_text_pii_matches(content: str, ai_snippets: list = None) -> list:
                     start_pos = pos + len(lower_snippet)
                     if start_pos >= len(lower_line):
                         break
+
+    if file_path:
+        try:
+            try:
+                from .remediation import is_file_or_match_ignored
+            except (ImportError, ValueError):
+                from backend.remediation import is_file_or_match_ignored
+            matches = [
+                m for m in matches
+                if not is_file_or_match_ignored(file_path, match_text=m.get("match_text"), pattern_name=m.get("pattern_name"))
+            ]
+        except Exception:
+            pass
 
     # Sort matches by line_number, then start_col
     matches.sort(key=lambda m: (m["line_number"], m["start_col"]))
@@ -627,6 +640,14 @@ def verify_text_file_with_ai(file_path: str) -> dict:
 
 def get_scannable_files(folders):
     files_to_scan = []
+    try:
+        from .remediation import is_file_or_match_ignored
+    except (ImportError, ValueError):
+        try:
+            from backend.remediation import is_file_or_match_ignored
+        except Exception:
+            is_file_or_match_ignored = lambda f: False
+
     for folder in folders:
         path = Path(folder)
         if not path.exists() or not path.is_dir():
@@ -637,13 +658,20 @@ def get_scannable_files(folders):
                 file_path = Path(root) / file
                 ext = file_path.suffix.lower()
                 if ext in IMAGE_EXTENSIONS or ext in HEIC_EXTENSIONS or ext in PDF_EXTENSIONS or ext in OFFICE_EXTENSIONS or ext in TEXT_EXTENSIONS:
-                    files_to_scan.append(file_path)
+                    if not is_file_or_match_ignored(str(file_path)):
+                        files_to_scan.append(file_path)
     return files_to_scan
 
-def run_scan(folders, save_results_callback, rescan_all=False):
-    scan_state.reset()
-    scan_state.is_scanning = True
-    
+def run_scan(folders, save_results_callback, rescan_all=False, scan_id=None):
+    global _scan_id
+    if scan_id is None:
+        scan_id = _scan_id
+
+    with state_lock:
+        scan_state.reset()
+        scan_state.is_scanning = True
+        scan_state.should_stop = False
+
     file_cache = load_cache()
     
     settings = load_settings()
@@ -665,7 +693,7 @@ def run_scan(folders, save_results_callback, rescan_all=False):
     scan_state.progress["total_files"] = len(files)
     
     def scan_single_file(file_path):
-        if scan_state.should_stop:
+        if scan_state.should_stop or scan_id != _scan_id:
             return
             
         with state_lock:
@@ -739,7 +767,7 @@ def run_scan(folders, save_results_callback, rescan_all=False):
         except Exception as e:
             print(f"Error scanning file {file_path}: {e}")
             
-        if scan_state.should_stop:
+        if scan_state.should_stop or scan_id != _scan_id:
             return
             
         file_cache[str_path] = {
@@ -779,29 +807,67 @@ def run_scan(folders, save_results_callback, rescan_all=False):
         with state_lock:
             scan_state.progress["scanned_files"] += 1
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=concurrency)
+    try:
         futures = {executor.submit(scan_single_file, f): f for f in files}
         for future in concurrent.futures.as_completed(futures):
-            if scan_state.should_stop:
+            if scan_state.should_stop or scan_id != _scan_id:
                 try:
                     executor.shutdown(wait=False, cancel_futures=True)
                 except TypeError:
                     executor.shutdown(wait=False)
                 break
                 
-    scan_state.is_scanning = False
-    if not scan_state.should_stop:
-        save_cache(file_cache)
-        save_results_callback(scan_state.flagged_files)
+        if not scan_state.should_stop and scan_id == _scan_id:
+            save_cache(file_cache)
+            save_results_callback(scan_state.flagged_files)
+    finally:
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        if scan_id == _scan_id:
+            with state_lock:
+                scan_state.is_scanning = False
+
+
+_scan_id = 0
+_scan_lock = threading.Lock()
+_current_scan_thread = None
+
 
 def start_scan_thread(folders, save_results_callback, rescan_all=False):
-    if scan_state.is_scanning:
-        return False
-    scan_state.is_scanning = True
-    thread = threading.Thread(target=run_scan, args=(folders, save_results_callback, rescan_all))
-    thread.daemon = True
-    thread.start()
-    return True
+    global _scan_id, _current_scan_thread
+    with _scan_lock:
+        # If an active (non-aborted) scan is currently running, reject concurrent duplicate trigger
+        if scan_state.is_scanning and not scan_state.should_stop:
+            return False
 
-def stop_scan():
-    scan_state.should_stop = True
+        # Invalidate any in-flight workers from previous aborted runs
+        _scan_id += 1
+        current_id = _scan_id
+
+        with state_lock:
+            scan_state.reset()
+            scan_state.is_scanning = True
+            scan_state.should_stop = False
+
+        _current_scan_thread = threading.Thread(
+            target=run_scan,
+            args=(folders, save_results_callback, rescan_all, current_id),
+            name=f"ArgusScanWorker-{current_id}"
+        )
+        _current_scan_thread.daemon = True
+        _current_scan_thread.start()
+        return True
+
+
+def stop_scan(timeout=None):
+    global _current_scan_thread
+    with state_lock:
+        scan_state.should_stop = True
+        scan_state.is_scanning = False
+    if timeout and _current_scan_thread and _current_scan_thread.is_alive():
+        _current_scan_thread.join(timeout=timeout)
+
+

@@ -43,7 +43,7 @@ jobs:
 
       - name: "Step 1: Syntax & Bytecode Compilation"
         run: |
-          python -m py_compile backend/main.py backend/scanner.py backend/state.py
+          python -m py_compile backend/main.py backend/scanner.py backend/state.py backend/remediation.py
 
       - name: "Step 2: Full Test Suite Execution"
         id: run-tests

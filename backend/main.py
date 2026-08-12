@@ -21,12 +21,14 @@ try:
     from .hardware_info import get_full_system_specs, get_recommended_models
     from . import local_llm
     from . import model_downloader
+    from . import remediation
 except (ImportError, ValueError):
     from backend.state import load_settings, save_settings, load_results, save_results
     from backend.scanner import start_scan_thread, stop_scan, scan_state, ensure_ollama_running, get_system_ram, get_auto_config
     from backend.hardware_info import get_full_system_specs, get_recommended_models
     import backend.local_llm as local_llm
     import backend.model_downloader as model_downloader
+    import backend.remediation as remediation
 
 import io
 from PIL import Image
@@ -80,19 +82,39 @@ class Api:
 
     def start_scan(self, rescan_all=False):
         settings = load_settings()
-        if not settings.get("folders"):
-            return False
-        
+        folders = settings.get("folders", [])
+        if not folders or len(folders) == 0:
+            return {
+                "success": False,
+                "error": "no_directories",
+                "message": "Please add at least one directory to inspect first."
+            }
+
+        valid_folders = [f for f in folders if f and isinstance(f, str) and os.path.exists(f)]
+        if not valid_folders:
+            return {
+                "success": False,
+                "error": "invalid_directories",
+                "message": "The configured target directories could not be found on disk. Please verify or re-add them."
+            }
+
         # Save results callback
         def on_scan_complete(results):
             save_results(results)
-            
-        success = start_scan_thread(settings["folders"], on_scan_complete, rescan_all)
-        return success
+
+        started = start_scan_thread(valid_folders, on_scan_complete, rescan_all)
+        if started:
+            return {"success": True}
+        else:
+            return {
+                "success": False,
+                "error": "scan_in_progress",
+                "message": "A scan is already in progress or currently terminating. Please wait a moment and try again."
+            }
 
     def stop_scan(self):
-        stop_scan()
-        return True
+        stop_scan(timeout=2.0)
+        return {"success": True}
 
     def get_scan_progress(self):
         return {
@@ -237,6 +259,8 @@ class Api:
             from .scanner import IMAGE_EXTENSIONS, HEIC_EXTENSIONS, PDF_EXTENSIONS, OFFICE_EXTENSIONS, calculate_file_checksum
             checksum = file_record.get("checksum") if file_record and file_record.get("checksum") else calculate_file_checksum(file_path)
 
+            is_writable = remediation.check_write_permission(file_path)
+
             if ext in IMAGE_EXTENSIONS or ext in HEIC_EXTENSIONS:
                 if ext in HEIC_EXTENSIONS:
                     try:
@@ -263,7 +287,8 @@ class Api:
                     "data": data_uri,
                     "items": saved_items,
                     "reason": reason or "Image inspected for sensitive content",
-                    "checksum": checksum
+                    "checksum": checksum,
+                    "is_writable": is_writable
                 }
             else:
                 from .scanner import get_file_text_content, locate_text_pii_matches
@@ -272,7 +297,7 @@ class Api:
                     content = "(No readable text could be extracted or file is empty)"
                     highlights = []
                 else:
-                    highlights = locate_text_pii_matches(content, ai_snippets=saved_snippets)
+                    highlights = locate_text_pii_matches(content, ai_snippets=saved_snippets, file_path=file_path)
 
                 doc_type = "PDF" if ext in PDF_EXTENSIONS else "Office" if ext in OFFICE_EXTENSIONS else "Text"
                 return {
@@ -283,7 +308,8 @@ class Api:
                     "content": content,
                     "highlights": highlights,
                     "reason": reason or (f"Flagged with {len(highlights)} PII findings" if highlights else "No PII matches detected"),
-                    "checksum": checksum
+                    "checksum": checksum,
+                    "is_writable": is_writable
                 }
         except Exception as e:
             return {"error": f"Preview error: {str(e)}"}
@@ -300,6 +326,119 @@ class Api:
         if preview.get("content_type") == "image":
             return preview.get("data")
         return preview.get("content", "")
+
+    # ------------------------------------------------------------------
+    # Remediation & Cleansing API
+    # ------------------------------------------------------------------
+
+    def redact_entity(self, file_path, line_number=1, start_col=0, end_col=0, match_text="", mask_pattern=None, expected_checksum=None):
+        """Sanitizes an individual PII match in-place."""
+        try:
+            if mask_pattern is None:
+                settings = load_settings()
+                mask_pattern = settings.get("redaction_mask_pattern", "redacted")
+            return remediation.redact_file_entity(
+                file_path=file_path,
+                line_number=line_number,
+                start_col=start_col,
+                end_col=end_col,
+                match_text=match_text,
+                mask_pattern=mask_pattern,
+                expected_checksum=expected_checksum
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e), "message": str(e)}
+
+    def batch_redact(self, file_path, mask_pattern=None, expected_checksum=None):
+        """Sanitizes all detected PII matches in a file in a single atomic pass."""
+        try:
+            if mask_pattern is None:
+                settings = load_settings()
+                mask_pattern = settings.get("redaction_mask_pattern", "redacted")
+            return remediation.batch_redact_file(
+                file_path=file_path,
+                mask_pattern=mask_pattern,
+                expected_checksum=expected_checksum
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e), "message": str(e)}
+
+    def delete_file_item(self, file_path, permanent=None):
+        """Deletes a file (moves to Recycle Bin/Trash by default, or permanent)."""
+        try:
+            if permanent is None:
+                settings = load_settings()
+                permanent = (settings.get("deletion_mode", "trash") == "permanent")
+            return remediation.trash_or_delete_file(file_path, permanent=permanent)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def batch_delete_files(self, file_paths, permanent=None):
+        """Deletes multiple files, returning list of successfully removed items."""
+        deleted = []
+        if permanent is None:
+            settings = load_settings()
+            permanent = (settings.get("deletion_mode", "trash") == "permanent")
+        for path in file_paths:
+            res = remediation.trash_or_delete_file(path, permanent=permanent)
+            if res.get("success"):
+                deleted.append(path)
+        return deleted
+
+    def mark_as_safe(self, file_path, match_text=None, pattern_name=None, reason="Whitelisted by user"):
+        """Whitelists a file or specific entity exception and updates .argusignore."""
+        try:
+            return remediation.mark_as_safe_exception(
+                file_path=file_path,
+                match_text=match_text,
+                pattern_name=pattern_name,
+                reason=reason
+            )
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_allowed_exceptions(self):
+        """Return list of whitelisted exceptions."""
+        try:
+            return remediation.get_allowed_exceptions()
+        except Exception as e:
+            return {"error": str(e)}
+
+    def remove_allowed_exception(self, exception_id):
+        """Remove an exception by ID."""
+        try:
+            return remediation.remove_allowed_exception(exception_id)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def fix_file_permissions(self, file_path):
+        """Removes read-only attributes from file."""
+        try:
+            return remediation.fix_file_permissions(file_path)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_backups_list(self):
+        """Return list of created backups in .argus_backups/."""
+        try:
+            return remediation.list_backups()
+        except Exception as e:
+            return {"error": str(e)}
+
+    def restore_backup_file(self, backup_id_or_path):
+        """Restore file from a backup."""
+        try:
+            return remediation.restore_backup(backup_id_or_path)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def prune_backups(self, max_days=7):
+        """Prunes expired backups older than max_days."""
+        try:
+            count = remediation.prune_expired_backups(max_days=max_days)
+            return {"success": True, "pruned_count": count}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     # ------------------------------------------------------------------
     # Hardware & Local Model Management API
