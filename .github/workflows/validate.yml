@@ -19,12 +19,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+
+
+      - name: Cache Virtual Environment
+        id: cache-venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.venv
+          key: ${{ runner.os }}-venv-3.11-${{ hashFiles('**/requirements.txt') }}
+
 
       - name: Install Dependencies
+        if: steps.cache-venv.outputs.cache-hit != 'true'
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m venv ~/.venv
+          ~/.venv/bin/python -m pip install --upgrade pip
+          ~/.venv/bin/pip install --prefer-binary -r requirements.txt
+
+      - name: Activate Virtual Environment
+        run: |
+          echo "$HOME/.venv/bin" >> $GITHUB_PATH
+
 
       - name: "Step 1: Syntax & Bytecode Compilation"
         run: |
