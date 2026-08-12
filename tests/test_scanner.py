@@ -480,16 +480,15 @@ def test_get_inference_response_ollama():
             mock_client.chat.assert_called_once()
 
 def test_get_inference_response_local_gguf_not_available():
+    import backend.local_llm as real_llm
     with patch("backend.scanner.get_model_provider", return_value="local_gguf"):
-        mock_llm = MagicMock()
-        mock_llm.is_available.return_value = False
-        with patch.dict("sys.modules", {"backend.local_llm": mock_llm}):
-            with patch("backend.scanner.local_llm", mock_llm, create=True):
-                with pytest.raises(RuntimeError, match="not installed"):
-                    get_inference_response(
-                        messages=[{"role": "user", "content": "test"}],
-                        model_name="test"
-                    )
+        with patch.object(real_llm, "is_available", return_value=False):
+            with pytest.raises(RuntimeError, match="not installed"):
+                get_inference_response(
+                    messages=[{"role": "user", "content": "test"}],
+                    model_name="test"
+                )
+
 
 def test_get_inference_response_local_gguf_no_model():
     import backend.local_llm as real_llm
