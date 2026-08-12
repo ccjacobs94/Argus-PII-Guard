@@ -49,6 +49,17 @@ class TestBackups:
         res = rem.restore_backup("non_existent_id", base_dir=str(tmp_path))
         assert res["success"] is False
 
+    def test_restore_backup_file_missing_on_disk(self, tmp_path):
+        test_file = tmp_path / "data.txt"
+        test_file.write_text("orig", encoding="utf-8")
+        entry = rem.create_backup(str(test_file), base_dir=str(tmp_path))
+        
+        # Remove backup file manually
+        os.remove(entry["backup_path"])
+        res = rem.restore_backup(entry["id"], base_dir=str(tmp_path))
+        assert res["success"] is False
+        assert res["error"] == "Backup file missing on disk"
+
     def test_prune_expired_backups(self, tmp_path):
         test_file = tmp_path / "data.txt"
         test_file.write_text("some content", encoding="utf-8")
@@ -66,6 +77,12 @@ class TestBackups:
         assert pruned == 1
         assert not backup_file.exists()
 
+    def test_load_backup_index_corrupt(self, tmp_path):
+        index_file = tmp_path / ".argus_backups" / "index.json"
+        index_file.parent.mkdir(parents=True, exist_ok=True)
+        index_file.write_text("invalid json content", encoding="utf-8")
+        assert rem._load_backup_index(str(tmp_path)) == []
+
 
 class TestPermissionsAndIntegrity:
     def test_check_write_permission_and_fix(self, tmp_path):
@@ -73,6 +90,7 @@ class TestPermissionsAndIntegrity:
         test_file.write_text("read only text", encoding="utf-8")
 
         assert rem.check_write_permission(str(test_file)) is True
+        assert rem.check_write_permission(str(tmp_path / "missing.txt")) is False
 
         # Make read-only
         os.chmod(str(test_file), stat.S_IREAD)
@@ -80,6 +98,12 @@ class TestPermissionsAndIntegrity:
         fix_res = rem.fix_file_permissions(str(test_file))
         assert fix_res["success"] is True
         assert rem.check_write_permission(str(test_file)) is True
+
+    def test_check_write_permission_access_denied(self, tmp_path):
+        test_file = tmp_path / "denied.txt"
+        test_file.write_text("content", encoding="utf-8")
+        with patch("os.access", return_value=False):
+            assert rem.check_write_permission(str(test_file)) is False
 
     def test_fix_permissions_non_existent(self, tmp_path):
         res = rem.fix_file_permissions(str(tmp_path / "not_there.txt"))
@@ -119,6 +143,13 @@ class TestMasking:
 
         custom = rem.mask_text(secret, mask_pattern="[DELETED]")
         assert custom == "[DELETED]"
+
+        assert rem.mask_text("", mask_pattern="redacted") == "[REDACTED]"
+
+    def test_mask_credit_card(self):
+        cc = "4532-1122-3344-5566"
+        res = rem.mask_text(cc, mask_pattern="mask")
+        assert res == "XXXX-XXXX-XXXX-5566"
 
 
 class TestRedaction:
@@ -176,6 +207,29 @@ class TestRedaction:
         assert res["success"] is False
         assert res["error"] == "unsupported_format"
 
+    def test_redact_image_unsupported(self, tmp_path):
+        img_file = tmp_path / "leak.jpg"
+        img_file.write_bytes(b"\xff\xd8\xff dummy jpeg")
+        res = rem.redact_file_entity(str(img_file), 1, 0, 5, "secret", base_dir=str(tmp_path))
+        assert res["success"] is False
+        assert res["error"] == "unsupported_format"
+
+    def test_redact_permission_denied(self, tmp_path):
+        test_file = tmp_path / "locked.txt"
+        test_file.write_text("Secret=123", encoding="utf-8")
+        os.chmod(str(test_file), stat.S_IREAD)
+
+        with patch.object(rem, "check_write_permission", return_value=False):
+            res = rem.redact_file_entity(str(test_file), 1, 7, 10, "123", base_dir=str(tmp_path))
+            assert res["success"] is False
+            assert res["error"] == "permission_denied"
+
+            batch_res = rem.batch_redact_file(str(test_file), base_dir=str(tmp_path))
+            assert batch_res["success"] is False
+            assert batch_res["error"] == "permission_denied"
+
+        rem.fix_file_permissions(str(test_file))
+
     def test_batch_redact_file_text_with_findings(self, tmp_path):
         test_file = tmp_path / "credentials.txt"
         test_file.write_text(
@@ -183,7 +237,6 @@ class TestRedaction:
             encoding="utf-8"
         )
 
-        # Batch redact by scanning on the fly
         res = rem.batch_redact_file(str(test_file), mask_pattern="redacted", base_dir=str(tmp_path))
         assert res["success"] is True
 
@@ -198,6 +251,13 @@ class TestRedaction:
         assert res["success"] is False
         assert res["error"] == "unsupported_format"
 
+    def test_batch_redact_no_findings(self, tmp_path):
+        clean_file = tmp_path / "clean_file.txt"
+        clean_file.write_text("Nothing sensitive here", encoding="utf-8")
+        res = rem.batch_redact_file(str(clean_file), base_dir=str(tmp_path))
+        assert res["success"] is True
+        assert res["redacted_count"] == 0
+
 
 class TestOfficeRedaction:
     def test_docx_redaction(self, tmp_path):
@@ -208,7 +268,13 @@ class TestOfficeRedaction:
         mock_p = MagicMock()
         mock_p.text = "Sensitive SSN is 123-45-6789 in doc"
         mock_doc.paragraphs = [mock_p]
-        mock_doc.tables = []
+        mock_cell = MagicMock()
+        mock_cell.text = "Table 123-45-6789"
+        mock_row = MagicMock()
+        mock_row.cells = [mock_cell]
+        mock_tbl = MagicMock()
+        mock_tbl.rows = [mock_row]
+        mock_doc.tables = [mock_tbl]
 
         mock_docx_module = MagicMock()
         mock_docx_module.Document.return_value = mock_doc
@@ -292,6 +358,15 @@ class TestDeletion:
         assert res["success"] is True
         assert not test_file.exists()
 
+    def test_trash_or_delete_directory_permanent(self, tmp_path):
+        target_dir = tmp_path / "dir_to_delete"
+        target_dir.mkdir()
+        (target_dir / "sub.txt").write_text("sub", encoding="utf-8")
+
+        res = rem.trash_or_delete_file(str(target_dir), permanent=True, base_dir=str(tmp_path))
+        assert res["success"] is True
+        assert not target_dir.exists()
+
     def test_trash_or_delete_file_trash(self, tmp_path):
         test_file = tmp_path / "trash_me.txt"
         test_file.write_text("to be trashed", encoding="utf-8")
@@ -303,6 +378,22 @@ class TestDeletion:
     def test_trash_or_delete_non_existent(self, tmp_path):
         res = rem.trash_or_delete_file(str(tmp_path / "missing.txt"), base_dir=str(tmp_path))
         assert res["success"] is True
+
+    def test_trash_darwin_mock(self, tmp_path):
+        test_file = tmp_path / "mac_trash.txt"
+        test_file.write_text("mac", encoding="utf-8")
+        with patch("sys.platform", "darwin"), patch("subprocess.run") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0)
+            res = rem.trash_or_delete_file(str(test_file), permanent=False, base_dir=str(tmp_path))
+            assert res["success"] is True
+
+    def test_trash_linux_gio_mock(self, tmp_path):
+        test_file = tmp_path / "linux_trash.txt"
+        test_file.write_text("linux", encoding="utf-8")
+        with patch("sys.platform", "linux"), patch("subprocess.run") as mock_sub:
+            mock_sub.return_value = MagicMock(returncode=0)
+            res = rem.trash_or_delete_file(str(test_file), permanent=False, base_dir=str(tmp_path))
+            assert res["success"] is True
 
 
 class TestAllowedExceptions:
@@ -332,6 +423,10 @@ class TestAllowedExceptions:
         ex_id = exceptions[0]["id"]
         remove_res = rem.remove_allowed_exception(ex_id)
         assert remove_res["success"] is True
+
+        # Removing invalid ID
+        bad_remove = rem.remove_allowed_exception("invalid_unknown_id")
+        assert bad_remove["success"] is False
 
 
 class TestScannerIntegration:
@@ -371,6 +466,10 @@ class TestAPIEndpoints:
         preview = api.get_file_preview_details(str(test_file))
         assert preview["is_writable"] is True
         assert len(preview["highlights"]) > 0
+
+        # Non-existent preview
+        bad_preview = api.get_file_preview_details(str(tmp_path / "missing_file.txt"))
+        assert "error" in bad_preview
 
         # 2. Redact entity
         h = preview["highlights"][0]
@@ -430,15 +529,16 @@ class TestAPIEndpoints:
 
 
 class TestEdgeCasesAndParsing:
+    def test_redact_plain_text_empty(self):
+        assert rem._redact_plain_text("", 1, 0, 0, "test", "[REDACTED]") == ""
+
     def test_redact_plain_text_fallback_in_line(self):
         content = "Line 1\nSecretKey=123456\nLine 3\n"
-        # Start col wrong, but match_text is in line
         res = rem._redact_plain_text(content, line_number=2, start_col=0, end_col=5, match_text="123456", masked="[REDACTED]")
         assert "SecretKey=[REDACTED]" in res
 
     def test_redact_plain_text_out_of_bounds_fallback_global(self):
         content = "Line 1\nSecretKey=123456\nLine 3\n"
-        # Line number 99 out of bounds, but match_text exists in document
         res = rem._redact_plain_text(content, line_number=99, start_col=0, end_col=5, match_text="123456", masked="[REDACTED]")
         assert "SecretKey=[REDACTED]" in res
 
@@ -466,11 +566,15 @@ class TestEdgeCasesAndParsing:
         assert rem.is_file_or_match_ignored(str(tmp_path / "notes.txt"), match_text="secret_match_value", base_dir=str(tmp_path)) is True
         assert rem.is_file_or_match_ignored(str(tmp_path / "notes.txt"), match_text="clean_value", base_dir=str(tmp_path)) is False
 
+    def test_append_argusignore_with_comment(self, tmp_path):
+        rem.append_argusignore_entry("test_rule", comment="Rule description", base_dir=str(tmp_path))
+        lines = rem.load_argusignore(base_dir=str(tmp_path))
+        assert "test_rule" in lines
+
     def test_sync_state_with_remaining_findings(self, tmp_path):
         test_file = tmp_path / "partial.txt"
         test_file.write_text("API_KEY=AKIAIOSFODNN7EXAMPLE\nSECOND_KEY=AKIAIOSFODNN7EXAMPLE2\n", encoding="utf-8")
 
-        # Initial state setup
         results = [{"file": str(test_file), "compromised": True, "reason": "Initial leaks"}]
         state.save_results(results)
         scanner.scan_state.flagged_files = [{"file": str(test_file), "compromised": True}]
@@ -480,35 +584,3 @@ class TestEdgeCasesAndParsing:
 
         saved = state.load_results()
         assert len(saved) >= 0
-
-    def test_mask_credit_card(self):
-        cc = "4532-1122-3344-5566"
-        res = rem.mask_text(cc, mask_pattern="mask")
-        assert res == "XXXX-XXXX-XXXX-5566"
-
-    def test_redact_image_unsupported(self, tmp_path):
-        img_file = tmp_path / "leak.jpg"
-        img_file.write_bytes(b"\xff\xd8\xff dummy jpeg")
-        res = rem.redact_file_entity(str(img_file), 1, 0, 5, "secret", base_dir=str(tmp_path))
-        assert res["success"] is False
-        assert res["error"] == "unsupported_format"
-
-    def test_redact_permission_denied(self, tmp_path):
-        test_file = tmp_path / "locked.txt"
-        test_file.write_text("Secret=123", encoding="utf-8")
-        os.chmod(str(test_file), stat.S_IREAD)
-
-        # Mock check_write_permission returning False
-        with patch.object(rem, "check_write_permission", return_value=False):
-            res = rem.redact_file_entity(str(test_file), 1, 7, 10, "123", base_dir=str(tmp_path))
-            assert res["success"] is False
-            assert res["error"] == "permission_denied"
-
-            batch_res = rem.batch_redact_file(str(test_file), base_dir=str(tmp_path))
-            assert batch_res["success"] is False
-            assert batch_res["error"] == "permission_denied"
-
-        # Restore permissions
-        rem.fix_file_permissions(str(test_file))
-
-

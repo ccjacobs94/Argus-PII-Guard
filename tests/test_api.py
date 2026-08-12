@@ -494,4 +494,51 @@ def test_api_get_model_download_status(api_instance):
         assert status["percent"] == 45.0
 
 
+def test_api_remediation_methods_error_handling(api_instance):
+    with patch("backend.main.remediation.redact_file_entity", side_effect=Exception("redact err")):
+        res = api_instance.redact_entity("file.txt", 1, 0, 5, "secret")
+        assert res["success"] is False
+        assert "redact err" in res["error"]
+
+    with patch("backend.main.remediation.batch_redact_file", side_effect=Exception("batch redact err")):
+        res = api_instance.batch_redact("file.txt")
+        assert res["success"] is False
+        assert "batch redact err" in res["error"]
+
+    with patch("backend.main.remediation.trash_or_delete_file", side_effect=Exception("delete err")):
+        res = api_instance.delete_file_item("file.txt")
+        assert res["success"] is False
+        assert "delete err" in res["error"]
+
+    with patch("backend.main.remediation.mark_as_safe_exception", side_effect=Exception("safe err")):
+        res = api_instance.mark_as_safe("file.txt", "match")
+        assert res["success"] is False
+        assert "safe err" in res["error"]
+
+    with patch("backend.main.remediation.get_allowed_exceptions", side_effect=Exception("list err")):
+        res = api_instance.get_allowed_exceptions()
+        assert "error" in res
+
+    with patch("backend.main.remediation.remove_allowed_exception", side_effect=Exception("remove err")):
+        res = api_instance.remove_allowed_exception("id_123")
+        assert res["success"] is False
+
+    with patch("backend.main.remediation.fix_file_permissions", side_effect=Exception("perm err")):
+        res = api_instance.fix_file_permissions("file.txt")
+        assert res["success"] is False
+
+    with patch("backend.main.remediation.list_backups", side_effect=Exception("backup err")):
+        res = api_instance.get_backups_list()
+        assert "error" in res
+
+    with patch("backend.main.remediation.restore_backup", side_effect=Exception("restore err")):
+        res = api_instance.restore_backup_file("id_123")
+        assert res["success"] is False
+
+    with patch("backend.main.remediation.prune_expired_backups", side_effect=Exception("prune err")):
+        res = api_instance.prune_backups()
+        assert res["success"] is False
+
+
+
 
