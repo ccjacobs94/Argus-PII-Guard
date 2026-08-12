@@ -88,11 +88,14 @@ def test_api_mark_file_ok_and_cache(api_instance, tmp_path):
     # Results should be cleared
     assert len(api_instance.get_results()) == 0
 
-    # Cache should record cleared status
+    # Cache should record cleared status with checksum and size
     cache = load_cache()
     assert str(test_file) in cache
     assert cache[str_file_key := str(test_file)]["result"]["compromised"] is False
     assert cache[str_file_key]["result"]["marked_ok"] is True
+    assert "checksum" in cache[str_file_key]
+    assert len(cache[str_file_key]["checksum"]) == 64
+    assert "size" in cache[str_file_key]
 
 def test_api_verify_file_ai(api_instance, tmp_path):
     f_comp = tmp_path / "comp.txt"
@@ -118,6 +121,9 @@ def test_api_verify_file_ai(api_instance, tmp_path):
         assert len(api_instance.get_results()) == 0
         cache = load_cache()
         assert cache[str(f_comp)]["result"]["compromised"] is False
+        assert "checksum" in cache[str(f_comp)]
+        assert len(cache[str(f_comp)]["checksum"]) == 64
+        assert "size" in cache[str(f_comp)]
 
     # Case 3: Verify file that doesn't exist in results or state
     with patch("backend.scanner.verify_text_file_with_ai", return_value={"compromised": True, "reason": "Random"}):
@@ -198,6 +204,8 @@ def test_api_get_file_preview_details(api_instance, tmp_path):
     res_text = api_instance.get_file_preview_details(str(text_file))
     assert res_text["content_type"] == "text"
     assert res_text["file_type"] == "Text"
+    assert "checksum" in res_text
+    assert len(res_text["checksum"]) == 64
     assert len(res_text["highlights"]) >= 2
     assert any(h["pattern_name"] == "SSN" for h in res_text["highlights"])
     assert any(h["source"] == "ai" for h in res_text["highlights"])
@@ -208,6 +216,7 @@ def test_api_get_file_preview_details(api_instance, tmp_path):
     res_empty = api_instance.get_file_preview_details(str(empty_file))
     assert res_empty["content_type"] == "text"
     assert "(No readable text" in res_empty["content"]
+    assert "checksum" in res_empty
 
     # 4. Image file with visual bounding box items
     img_file = tmp_path / "id_card.png"
@@ -228,6 +237,8 @@ def test_api_get_file_preview_details(api_instance, tmp_path):
     res_img = api_instance.get_file_preview_details(str(img_file))
     assert res_img["content_type"] == "image"
     assert res_img["file_type"] == "Image"
+    assert "checksum" in res_img
+    assert len(res_img["checksum"]) == 64
     assert res_img["data"].startswith("data:image/png;base64,")
     assert len(res_img["items"]) == 1
     assert res_img["items"][0]["label"] == "Passport"

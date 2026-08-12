@@ -29,4 +29,11 @@
    - Branch naming format: `feature/<feature-name>` (e.g., `feature/workflow-validation`, `feature/pdf-parser-fix`).
    - Direct commits and modifications to `main` are strictly prohibited to prevent accidental overwrites or regressions on the production branch.
 
+## Mandatory Repository Hygiene & Gitignore Auditing Rule
+
+6. **Gitignore & Artifact Auditing**:
+   - Whenever any new feature, build pipeline, download mechanism, test runner, dependency, or runtime cache is introduced or modified, audit the repository file structure and update `.gitignore` as needed.
+   - Ensure local state files (e.g. temporary model downloads `*.tmp`, test coverage reports, secrets `.env.*`, build targets, OS/editor metadata) are never accidentally tracked or committed.
+
+
 

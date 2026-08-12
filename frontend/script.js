@@ -314,10 +314,16 @@ function renderTextPreview(previewData) {
     reasonText.innerText = previewData.reason || '';
 
     // Badges & Findings bar
+    let checksumBadge = '';
+    if (previewData.checksum) {
+        checksumBadge = `<span class="chip" style="font-size:11px; padding:2px 8px; font-family:monospace;" title="SHA-256 Checksum: ${escapeHtml(previewData.checksum)}"><i class="ph-bold ph-fingerprint"></i> ${escapeHtml(previewData.checksum.slice(0, 8))}...</span>`;
+    }
+
     if (highlights.length > 0) {
         badgesContainer.innerHTML = `
             <span class="status-indicator badge-leak"><i class="ph-bold ph-warning"></i> ${highlights.length} ${highlights.length === 1 ? 'Finding' : 'Findings'}</span>
             <span class="chip" style="font-size:11px; padding:2px 8px;">${previewData.file_type || 'Document'}</span>
+            ${checksumBadge}
         `;
         findingsBar.classList.remove('hidden');
         findingsChips.innerHTML = '';
@@ -337,6 +343,7 @@ function renderTextPreview(previewData) {
         badgesContainer.innerHTML = `
             <span class="status-indicator badge-secure"><i class="ph-bold ph-check-circle"></i> Clean</span>
             <span class="chip" style="font-size:11px; padding:2px 8px;">${previewData.file_type || 'Document'}</span>
+            ${checksumBadge}
         `;
         findingsBar.classList.add('hidden');
     }
@@ -480,9 +487,14 @@ function renderImagePreview(previewData) {
     body.appendChild(stage);
 
     if (items.length > 0) {
+        let checksumBadge = '';
+        if (previewData.checksum) {
+            checksumBadge = `<span class="chip" style="font-size:11px; padding:2px 8px; font-family:monospace;" title="SHA-256 Checksum: ${escapeHtml(previewData.checksum)}"><i class="ph-bold ph-fingerprint"></i> ${escapeHtml(previewData.checksum.slice(0, 8))}...</span>`;
+        }
         badgesContainer.innerHTML = `
             <span class="status-indicator badge-leak"><i class="ph-bold ph-eye"></i> ${items.length} ${items.length === 1 ? 'Detection' : 'Detections'}</span>
             <span class="chip" style="font-size:11px; padding:2px 8px;">${previewData.file_type || 'Image'}</span>
+            ${checksumBadge}
         `;
         findingsBar.classList.remove('hidden');
         findingsChips.innerHTML = '';
@@ -569,6 +581,7 @@ class ArgusTourEngine {
             file_name: 'credentials.env',
             file_type: 'Env Secrets',
             content_type: 'text',
+            checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
             reason: 'High-risk secret leak detected: AWS Access Key, Stripe Secret & Database Password',
             content: `# Argus Sentinel Development Environment Config\nPORT=8080\nNODE_ENV=production\n\n# Database Access Credentials\nDATABASE_URL=postgres://app_admin:P@ssw0rd_SuperSecret2026!@postgres.internal.net:5432/user_db\n\n# Cloud Service Keys\nAWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nAWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\n# Payment & Authentication Tokens\nSTRIPE_SECRET_KEY=sk_test_51M0000000000000000000000000000000000000000000000000000000000\nJWT_AUTH_SECRET=super_secret_jwt_hmac_sha256_token_string_9988\n`,
             highlights: [
@@ -584,6 +597,7 @@ class ArgusTourEngine {
             file_name: 'identity_driver_license.png',
             file_type: 'PNG Image',
             content_type: 'image',
+            checksum: '8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4',
             reason: 'Vision AI detected Driver License with Photo ID, DL Number, Address & Signature',
             data: 'assets/demo-driver-license.png',
             items: [
@@ -679,7 +693,7 @@ class ArgusTourEngine {
                     <ul class="tour-feature-list">
                         <li class="tour-feature-item">
                             <i class="ph-fill ph-lightning" style="color:var(--argus-teal)"></i>
-                            <div><strong>Smart Scan (Default):</strong> Uses cryptographic SHA-256 state hashing to skip unmodified, verified files—saving over <strong>95%</strong> scan time.</div>
+                            <div><strong>Smart Scan (Default):</strong> Uses cryptographic SHA-256 checksum tracking to detect altered/modified files between scans while skipping untouched safe files—saving over <strong>95%</strong> scan time.</div>
                         </li>
                         <li class="tour-feature-item">
                             <i class="ph-fill ph-arrows-clockwise" style="color:var(--argus-periwinkle)"></i>
@@ -707,7 +721,7 @@ class ArgusTourEngine {
                         </li>
                         <li class="tour-feature-item">
                             <i class="ph-fill ph-fast-forward" style="color:var(--argus-teal)"></i>
-                            <div><strong>Instant Cache Skipping:</strong> Unmodified safe files bypass expensive LLM calls automatically.</div>
+                            <div><strong>Instant Checksum Skipping:</strong> Unmodified safe files bypass expensive LLM calls automatically based on cryptographic integrity.</div>
                         </li>
                         <li class="tour-feature-item">
                             <i class="ph-fill ph-warning-octagon" style="color:var(--danger)"></i>
