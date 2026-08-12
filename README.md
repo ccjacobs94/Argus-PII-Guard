@@ -1,6 +1,6 @@
 # Argus PII Guard 🛡️
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.5)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Coverage](https://img.shields.io/badge/coverage-85%25%2B-brightgreen.svg)](VALIDATION_PIPELINE.md)
@@ -34,7 +34,7 @@
 ## 💻 Installation & Usage
 
 ### Option 1: Running Pre-Built Windows Desktop Application
-1. Download the latest installer `Argus_PII_Guard_v1.0.0_Setup.exe` from the [Releases](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.0) page.
+1. Download the latest installer `Argus_PII_Guard_v1.0.5_Setup.exe` from the [Releases](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.5) page.
 2. Run the setup wizard to install Argus PII Guard to your Desktop and Start Menu.
 3. Launch **Argus PII Guard**.
 
