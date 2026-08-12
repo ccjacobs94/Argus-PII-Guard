@@ -41,6 +41,28 @@ def mock_winreg():
         import winreg
         yield winreg
 
+
+@pytest.fixture
+def mock_ctypes_windll():
+    """
+    On non-Windows platforms (Linux CI / macOS), `ctypes.windll` does not
+    exist.  Tests that simulate Windows paths by patching
+    ``ctypes.windll.shell32.IsUserAnAdmin`` (or ShellExecuteW) will raise
+    ``AttributeError`` because unittest.mock.patch cannot traverse a
+    non-existent intermediate attribute — even with ``create=True``.
+
+    This fixture pre-injects a MagicMock as ``ctypes.windll`` so the dotted
+    patch targets resolve correctly on every OS.
+    """
+    import ctypes
+    if not hasattr(ctypes, "windll"):
+        fake_windll = MagicMock()
+        ctypes.windll = fake_windll
+        yield fake_windll
+        del ctypes.windll
+    else:
+        yield ctypes.windll
+
 from backend.installer import (
     InstallerEngine,
     UninstallerEngine,
@@ -90,7 +112,7 @@ class TestPrivilegeChecks:
         assert res["sufficient"] is True
         assert res["has_write_access"] is True
 
-    def test_check_privileges_unwritable_dir(self, tmp_path):
+    def test_check_privileges_unwritable_dir(self, tmp_path, mock_ctypes_windll):
         target = tmp_path / "read_only_target"
         with patch("os.access", return_value=False), \
              patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=0, create=True), \
@@ -99,7 +121,7 @@ class TestPrivilegeChecks:
             assert res["sufficient"] is False
             assert "Permission denied" in res["message"]
 
-    def test_elevate_privileges_windows(self):
+    def test_elevate_privileges_windows(self, mock_ctypes_windll):
         with patch("platform.system", return_value="Windows"), \
              patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=1, create=True):
             assert elevate_privileges() is True
