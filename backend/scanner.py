@@ -170,6 +170,7 @@ def detect_secrets(content: str) -> list:
                 "start_col": start_col,
                 "end_col": end_col,
                 "match_text": masked_val,
+                "raw_match": secret_val,
                 "pattern_name": pattern_name,
                 "source": "regex"
             })
@@ -202,6 +203,7 @@ def detect_secrets(content: str) -> list:
                     "start_col": start_col,
                     "end_col": end_col,
                     "match_text": mask_secret(candidate),
+                    "raw_match": candidate,
                     "pattern_name": "Generic API Token",
                     "source": "entropy_context"
                 })
@@ -608,7 +610,10 @@ def locate_text_pii_matches(content: str, ai_snippets: list = None, file_path: s
                 from backend.remediation import is_file_or_match_ignored
             matches = [
                 m for m in matches
-                if not is_file_or_match_ignored(file_path, match_text=m.get("match_text"), pattern_name=m.get("pattern_name"))
+                if not (
+                    is_file_or_match_ignored(file_path, match_text=m.get("match_text"), pattern_name=m.get("pattern_name"))
+                    or (m.get("raw_match") and is_file_or_match_ignored(file_path, match_text=m.get("raw_match"), pattern_name=m.get("pattern_name")))
+                )
             ]
         except Exception:
             pass

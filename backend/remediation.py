@@ -855,6 +855,22 @@ def remove_allowed_exception(exception_id: str, base_dir: str = ".") -> dict:
     return {"success": True, "removed": removed_entry}
 
 
+def _matches_pattern_or_mask(candidate: str, rule: str) -> bool:
+    if not candidate or not rule:
+        return False
+    if candidate.lower() == rule.lower():
+        return True
+    if "..." in candidate and len(rule) > 8:
+        cand_parts = candidate.split("...")
+        if len(cand_parts) == 2 and rule.lower().startswith(cand_parts[0].lower()) and rule.lower().endswith(cand_parts[1].lower()):
+            return True
+    if "..." in rule and len(candidate) > 8:
+        rule_parts = rule.split("...")
+        if len(rule_parts) == 2 and candidate.lower().startswith(rule_parts[0].lower()) and candidate.lower().endswith(rule_parts[1].lower()):
+            return True
+    return False
+
+
 def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_name: str = None, base_dir: str = ".") -> bool:
     """
     Determines if a file or finding is whitelisted via .argusignore or settings.
@@ -870,7 +886,7 @@ def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_nam
         if ex_file and (ex_file == norm_path or norm_path.endswith(ex_file)):
             if not ex_match:
                 return True # Whole file ignored
-            if match_text and match_text == ex_match:
+            if match_text and _matches_pattern_or_mask(match_text, ex_match):
                 return True # Specific match ignored
 
     # 2. Check .argusignore
@@ -885,7 +901,7 @@ def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_nam
             path_part, match_part = line_clean.split("::", 1)
             path_part = path_part.strip()
             match_part = match_part.strip()
-            if (path_part == norm_path or norm_path.endswith(path_part) or fnmatch.fnmatch(filename, path_part) or fnmatch.fnmatch(norm_path, path_part)) and match_text and match_text.lower() == match_part:
+            if (path_part == norm_path or norm_path.endswith(path_part) or fnmatch.fnmatch(filename, path_part) or fnmatch.fnmatch(norm_path, path_part)) and match_text and _matches_pattern_or_mask(match_text, match_part):
                 return True
         else:
             if (line_clean == norm_path or 
@@ -893,7 +909,8 @@ def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_nam
                 filename == line_clean or 
                 fnmatch.fnmatch(filename, line_clean) or 
                 fnmatch.fnmatch(norm_path, f"*{line_clean.strip('/')}*") or 
-                (match_text and match_text.lower() == line_clean)):
+                (match_text and _matches_pattern_or_mask(match_text, line_clean))):
                 return True
 
     return False
+
