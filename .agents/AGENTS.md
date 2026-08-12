@@ -22,3 +22,11 @@
    - Ensure the interactive product tour/demo accurately introduces users to all new and updated features before changes reach the `main` branch.
    - For full pipeline validation details, consult `VALIDATION_PIPELINE.md`.
 
+## Mandatory Git Branching & Isolation Rules
+
+5. **Feature Branch Isolation**:
+   - Every time a new thread or task begins that modifies code in any way, a dedicated feature branch MUST be created and checked out before making code changes (e.g., `git checkout -b feature/<feature-name>`).
+   - Branch naming format: `feature/<feature-name>` (e.g., `feature/workflow-validation`, `feature/pdf-parser-fix`).
+   - Direct commits and modifications to `main` are strictly prohibited to prevent accidental overwrites or regressions on the production branch.
+
+
