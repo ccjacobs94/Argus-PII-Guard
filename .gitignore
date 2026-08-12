@@ -1,0 +1,43 @@
+# Byte-compiled / Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller / Build outputs
+build/
+dist/
+installer/Output/
+*.exe
+
+# Local Runtime & Application state
+cache.json
+results.json
+settings.json
+*.log
+models/*.gguf
+*.gguf
+
+# Test & Coverage outputs
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+pytestdebug.log
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo

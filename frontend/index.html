@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Argus PII Guard</title>
+    <link rel="icon" type="image/svg+xml" href="assets/argus-icon.svg">
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Using Phosphor Icons for high-tech aesthetic -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <a href="#" class="logo-container" id="sidebar-logo-container">
+                <img src="assets/argus-logo.svg" alt="Argus PII Guard" class="logo-img">
+            </a>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-target="dashboard" id="nav-dashboard">
+                    <i class="ph ph-squares-four"></i> Dashboard
+                </a>
+                <a href="#" class="nav-item" data-target="results" id="nav-results">
+                    <i class="ph ph-shield-warning"></i> Detections & Reports
+                </a>
+                <a href="#" class="nav-item" data-target="settings" id="nav-settings">
+                    <i class="ph ph-gear"></i> Settings
+                </a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="sidebar-tour-btn" class="btn btn-tour" title="Interactive Guided Tour">
+                    <i class="ph-bold ph-compass"></i>
+                    <span>Product Tour</span>
+                </button>
+            </div>
+
+            <div class="scan-status hidden" id="sidebar-scan-status">
+                <div class="pulse-ring"></div>
+                <span>Sentinel Scanning Active...</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard View -->
+            <section id="dashboard" class="view active">
+                <header>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h1>Sentinel Overview</h1>
+                            <p>Real-time Personally Identifiable Information Protection & Auditing</p>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="cards-grid">
+                    <!-- Target Folders Card -->
+                    <div class="card glass-panel" id="target-folders-card">
+                        <div class="card-header">
+                            <h3><i class="ph ph-folder-open" style="color: var(--argus-periwinkle);"></i> Target Directories</h3>
+                            <button id="add-folder-btn" class="btn btn-icon" title="Add Folder"><i class="ph ph-plus-circle" style="font-size: 22px;"></i></button>
+                        </div>
+                        <ul id="folder-list" class="folder-list">
+                            <!-- Folders populated via JS -->
+                        </ul>
+                    </div>
+
+                    <!-- Manual Scan Card -->
+                    <div class="card glass-panel scan-card" id="scan-card">
+                        <div class="card-header">
+                            <h3><i class="ph ph-scan" style="color: var(--argus-teal);"></i> Sentinel Inspection</h3>
+                        </div>
+                        <p>Initiate deep vision & text analysis of target directories using local AI.</p>
+                        
+                        <div class="scan-mode-options" id="scan-mode-options" style="margin-bottom: 18px; display: flex; flex-direction: column; gap: 8px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px;">
+                                <input type="radio" name="scan-mode" value="smart" checked>
+                                <span><strong>Smart Scan</strong> (Skips unmodified & previously cleared files)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px;">
+                                <input type="radio" name="scan-mode" value="full">
+                                <span><strong>Full Re-scan</strong> (Inspects everything from scratch)</span>
+                            </label>
+                        </div>
+
+                        <button id="start-scan-btn" class="btn btn-scan btn-large">
+                            <i class="ph-fill ph-play"></i> SCAN NOW
+                        </button>
+                        
+                        <div id="scan-progress-container" class="progress-container hidden">
+                            <!-- Orbital Radar Visualizer -->
+                            <div class="orbital-progress-wrapper">
+                                <div class="orbital-radar">
+                                    <div class="orbit-ring orbit-ring-outer"></div>
+                                    <div class="orbit-ring orbit-ring-middle"></div>
+                                    <div class="orbit-ring orbit-ring-inner"></div>
+                                    <div class="radar-sweep"></div>
+                                    <div class="orbit-eye-core">
+                                        <i class="ph-fill ph-eye"></i>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="progress-header">
+                                <div>
+                                    <span id="scan-scanned-count">0 / 0</span>
+                                    <span id="scan-skipped-count" style="color: var(--argus-teal); margin-left: 10px; font-size: 13px;">(0 skipped)</span>
+                                </div>
+                                <span id="scan-flagged-count" class="danger-text">0 flagged</span>
+                            </div>
+                            
+                            <div class="progress-bar">
+                                <div id="scan-progress-fill" class="progress-fill"></div>
+                            </div>
+                            
+                            <p id="scan-current-file" class="current-file-text">Scanning...</p>
+                            <button id="stop-scan-btn" class="btn btn-danger btn-small" style="width: 100%;">
+                                <i class="ph ph-stop"></i> Abort Scan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Supported File Types Guide Pill Bar -->
+                <div class="supported-types-card" id="supported-types-card">
+                    <div class="types-info">
+                        <i class="ph-fill ph-shield-check"></i>
+                        <span>Argus Inspection Engine Compatibility:</span>
+                    </div>
+                    <div class="types-chips">
+                        <span class="chip" title="PDF Documents" style="color:var(--argus-teal); border-color:rgba(58,186,140,0.4);">.PDF</span>
+                        <span class="chip" title="MS Word" style="color:var(--argus-periwinkle); border-color:rgba(120,142,224,0.4);">.DOCX</span>
+                        <span class="chip" title="MS Excel" style="color:var(--argus-periwinkle); border-color:rgba(120,142,224,0.4);">.XLSX</span>
+                        <span class="chip" title="MS PowerPoint" style="color:var(--argus-periwinkle); border-color:rgba(120,142,224,0.4);">.PPTX</span>
+                        <span class="chip" title="Environment Secrets">.ENV</span>
+                        <span class="chip" title="Database Dumps">.SQL</span>
+                        <span class="chip" title="YAML Configs">.YAML</span>
+                        <span class="chip" title="JPEG Images">.JPG</span>
+                        <span class="chip" title="PNG Images">.PNG</span>
+                        <span class="chip" title="Apple HEIC">.HEIC</span>
+                        <span class="chip" title="Plain Text">.TXT</span>
+                        <span class="chip" title="CSV Data">.CSV</span>
+                        <span class="chip" title="JSON Data">.JSON</span>
+                        <span class="chip" title="Code Files">.JS / .PY</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Detections & Reports View -->
+            <section id="results" class="view">
+                <header class="results-header">
+                    <div>
+                        <h1>Detections & Reports</h1>
+                        <p>Review flagged data leaks, verify with AI, or mark false positives as safe.</p>
+                    </div>
+                    <div class="action-buttons">
+                        <button id="refresh-results-btn" class="btn btn-secondary"><i class="ph ph-arrows-clockwise"></i> Refresh</button>
+                        <button id="mark-selected-ok-btn" class="btn btn-success"><i class="ph ph-check-circle"></i> Mark Selected OK</button>
+                        <button id="delete-selected-btn" class="btn btn-danger"><i class="ph ph-trash"></i> Delete Selected</button>
+                    </div>
+                </header>
+
+                <div class="glass-panel results-container">
+                    <div class="table-header">
+                        <div class="col-checkbox"><input type="checkbox" id="select-all-checkbox"></div>
+                        <div class="col-file">File</div>
+                        <div class="col-type">Type</div>
+                        <div class="col-status">Status</div>
+                        <div class="col-reason">Details & Actions</div>
+                    </div>
+                    <div id="results-list" class="results-list">
+                        <!-- Results populated via JS -->
+                        <div class="empty-state">
+                            <i class="ph ph-shield-check"></i>
+                            <p>All scanned files are SECURE. No PII leaks detected.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section id="settings" class="view">
+                <header>
+                    <h1>Settings & Config</h1>
+                    <p>Customize Argus scanner behavior, schedules, and AI engine parameters.</p>
+                </header>
+
+                <div class="glass-panel settings-card">
+                    <!-- Appearance & Theme -->
+                    <h3>Appearance & Interface</h3>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="theme-toggle">Argus Light Theme</label>
+                            <p>Switch between Cyber Sentinel Dark and Clean Light mode.</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="theme-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <h3 style="margin-top: 32px;">AI Model Engine</h3>
+
+                    <!-- Model Provider Toggle -->
+                    <div class="setting-row" id="model-provider-row">
+                        <div class="setting-info">
+                            <label>Inference Provider</label>
+                            <p>Choose how Argus runs AI models for PII detection.</p>
+                        </div>
+                        <div class="model-provider-toggle" id="model-provider-toggle">
+                            <label class="provider-option">
+                                <input type="radio" name="model-provider" value="ollama" checked>
+                                <span class="provider-label">
+                                    <i class="ph-fill ph-cloud-arrow-down"></i> Ollama Server
+                                </span>
+                            </label>
+                            <label class="provider-option">
+                                <input type="radio" name="model-provider" value="local_gguf">
+                                <span class="provider-label">
+                                    <i class="ph-fill ph-hard-drives"></i> Built-in Local (GGUF)
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Ollama Provider Panel -->
+                    <div id="ollama-provider-panel" class="provider-panel">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="ollama-address">Ollama Host Address</label>
+                                <p>Endpoint URL for your local or remote Ollama server.</p>
+                            </div>
+                            <input type="text" id="ollama-address" class="input-field" value="http://127.0.0.1:11434" style="width: 250px;">
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="ollama-vision-model">Vision Model (Images)</label>
+                                <p>Ollama model used for image PII detection.</p>
+                            </div>
+                            <input type="text" id="ollama-vision-model" class="input-field" value="gemma4:12b" style="width: 250px;" placeholder="e.g. gemma4:12b">
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label for="ollama-text-model">Text Model (Documents)</label>
+                                <p>Ollama model used for text/code PII detection.</p>
+                            </div>
+                            <input type="text" id="ollama-text-model" class="input-field" value="gemma4:12b" style="width: 250px;" placeholder="e.g. gemma4:12b">
+                        </div>
+                    </div>
+
+                    <!-- Local GGUF Provider Panel -->
+                    <div id="local-provider-panel" class="provider-panel hidden">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <label>Models Folder</label>
+                                <p>Directory containing your downloaded <code>.gguf</code> model files.</p>
+                            </div>
+                            <div class="models-folder-control">
+                                <span id="models-folder-path" class="models-folder-path" title="No folder selected">No folder selected</span>
+                                <button id="browse-models-folder-btn" class="btn btn-secondary btn-small">
+                                    <i class="ph ph-folder-open"></i> Browse
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Discovered Models List -->
+                        <div class="local-models-list-container">
+                            <div class="local-models-header">
+                                <h4><i class="ph-fill ph-files" style="color: var(--argus-periwinkle);"></i> Discovered Models</h4>
+                                <button id="refresh-models-btn" class="btn btn-icon btn-small" title="Re-scan folder">
+                                    <i class="ph ph-arrows-clockwise"></i>
+                                </button>
+                            </div>
+                            <div id="local-models-list" class="local-models-list">
+                                <div class="empty-models-state">
+                                    <i class="ph ph-file-dashed"></i>
+                                    <p>Select a models folder to discover .gguf files</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Model Load Status -->
+                        <div id="model-load-status" class="model-load-status hidden">
+                            <div class="load-status-indicator">
+                                <div class="status-dot status-dot-active"></div>
+                                <span id="loaded-model-name">No model loaded</span>
+                            </div>
+                            <button id="unload-model-btn" class="btn btn-danger btn-small">
+                                <i class="ph ph-eject"></i> Unload
+                            </button>
+                        </div>
+
+                        <div class="local-gguf-note">
+                            <i class="ph-fill ph-info" style="color: var(--argus-periwinkle);"></i>
+                            <span>Requires <code>llama-cpp-python</code>. Install with: <code>pip install llama-cpp-python</code></span>
+                        </div>
+                    </div>
+
+                    <!-- Enhanced Hardware Profile Card -->
+                    <h3 style="margin-top: 32px;">Hardware &amp; Performance</h3>
+                    <div class="hardware-profile-card glass-panel" id="hardware-profile-card">
+                        <div class="hw-profile-header">
+                            <i class="ph-fill ph-cpu" style="font-size: 20px; color: var(--argus-periwinkle);"></i>
+                            <span>System Hardware Profile</span>
+                        </div>
+                        <div class="hw-specs-grid" id="hw-specs-grid">
+                            <div class="hw-spec-item">
+                                <span class="hw-spec-label">CPU</span>
+                                <span class="hw-spec-value" id="hw-cpu-name">Detecting...</span>
+                            </div>
+                            <div class="hw-spec-item">
+                                <span class="hw-spec-label">Cores / Threads</span>
+                                <span class="hw-spec-value" id="hw-cpu-cores">—</span>
+                            </div>
+                            <div class="hw-spec-item">
+                                <span class="hw-spec-label">Total RAM</span>
+                                <span class="hw-spec-value" id="hw-ram-total">—</span>
+                            </div>
+                            <div class="hw-spec-item">
+                                <span class="hw-spec-label">Available RAM</span>
+                                <span class="hw-spec-value" id="hw-ram-available">—</span>
+                            </div>
+                            <div class="hw-spec-item">
+                                <span class="hw-spec-label">GPU</span>
+                                <span class="hw-spec-value" id="hw-gpu-name">Detecting...</span>
+                            </div>
+                            <div class="hw-spec-item">
+                                <span class="hw-spec-label">GPU VRAM</span>
+                                <span class="hw-spec-value" id="hw-gpu-vram">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Models -->
+                    <div class="recommended-models-section" id="recommended-models-section">
+                        <div class="recommended-models-header">
+                            <h4><i class="ph-fill ph-star" style="color: var(--argus-teal);"></i> Recommended Models for Your Hardware</h4>
+                            <button id="refresh-recommendations-btn" class="btn btn-icon btn-small" title="Refresh recommendations">
+                                <i class="ph ph-arrows-clockwise"></i>
+                            </button>
+                        </div>
+                        <div id="recommended-models-grid" class="recommended-models-grid">
+                            <div class="empty-models-state">
+                                <i class="ph ph-sparkle"></i>
+                                <p>Loading hardware-matched recommendations...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-top: 32px;">Automated Background Sentinel</h3>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="schedule-toggle">Daily Scheduled Scan</label>
+                            <p>Run an automated background scan periodically.</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="schedule-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-row" id="time-setting-row" style="opacity: 0.5; pointer-events: none;">
+                        <div class="setting-info">
+                            <label for="schedule-time">Scheduled Scan Time</label>
+                            <p>Time to start background scan (HH:MM)</p>
+                        </div>
+                        <input type="time" id="schedule-time" class="input-field" value="02:00">
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="concurrency-select">Parallel Scanning Threads</label>
+                            <p>Number of concurrent files to inspect simultaneously.</p>
+                        </div>
+                        <select id="concurrency-select" class="input-field" style="width: 250px;">
+                            <option value="auto">Auto (Recommended)</option>
+                            <option value="1">1 (Sequential - Low RAM)</option>
+                            <option value="2">2 Parallel Threads</option>
+                            <option value="4">4 Parallel Threads</option>
+                            <option value="8">8 Parallel Threads</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="image-optimization-select">Vision Image Resolution</label>
+                            <p>Pre-resize high-res images for faster AI model inference.</p>
+                        </div>
+                        <select id="image-optimization-select" class="input-field" style="width: 250px;">
+                            <option value="medium">Optimized 1024px (Recommended)</option>
+                            <option value="low">Optimized 768px (Fastest)</option>
+                            <option value="original">Original (Full Resolution)</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="text-scan-mode-select">Text File Inspection Engine</label>
+                            <p>Detection mode for text, code, and log files.</p>
+                        </div>
+                        <select id="text-scan-mode-select" class="input-field" style="width: 250px;">
+                            <option value="regex_llm">Balanced: Regex Filter + AI Verification</option>
+                            <option value="regex_only">Instant: Regex Only (No AI)</option>
+                            <option value="llm_only">Thorough: AI Direct Scan (Comprehensive)</option>
+                        </select>
+                    </div>
+
+                    <h3 style="margin-top: 32px;">Remediation & Actions</h3>
+                    <div class="setting-row">
+                        <div class="setting-info">
+                            <label for="auto-delete-toggle">Automatic Leak Removal</label>
+                            <p>Automatically delete verified compromised files upon detection.</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="auto-delete-toggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <button id="save-settings-btn" class="btn btn-primary" style="margin-top: 32px; width: 100%;">
+                        <i class="ph-fill ph-floppy-disk"></i> Save Configuration
+                    </button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal for File Preview -->
+    <div id="preview-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+                    <div id="preview-file-icon" class="preview-header-icon">
+                        <i class="ph-fill ph-file-text" style="color:var(--argus-teal)"></i>
+                    </div>
+                    <div style="min-width: 0;">
+                        <h3 id="preview-title" class="preview-title-text" title="File Preview">File Preview</h3>
+                        <p id="preview-subtitle" class="preview-subtitle-text">Inspection & Detection Visualizer</p>
+                    </div>
+                </div>
+                <div id="preview-badges" class="preview-badges-container">
+                    <!-- Badges injected dynamically -->
+                </div>
+                <span class="close-btn" title="Close Preview">&times;</span>
+            </div>
+
+            <!-- Findings Bar for Quick Jump -->
+            <div id="preview-findings-bar" class="preview-findings-bar hidden">
+                <span class="findings-label"><i class="ph-bold ph-crosshair"></i> Findings:</span>
+                <div id="preview-findings-chips" class="findings-chips-container">
+                    <!-- Chips injected dynamically -->
+                </div>
+            </div>
+
+            <div id="preview-body" class="preview-body">
+                <!-- Image or code preview goes here -->
+            </div>
+
+            <div class="modal-footer" id="preview-footer">
+                <div id="preview-status-reason" class="preview-reason-text"></div>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <button id="modal-mark-ok-btn" class="btn btn-success"><i class="ph ph-check-circle"></i> Mark as OK (Safe)</button>
+                    <button id="modal-delete-btn" class="btn btn-danger"><i class="ph ph-trash"></i> Delete File</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Onboarding Tour Elements -->
+    <div id="tour-spotlight-mask" class="tour-spotlight-mask hidden"></div>
+    <div id="tour-spotlight-box" class="tour-spotlight-box hidden"></div>
+    
+    <div id="tour-popover" class="tour-popover glass-panel hidden">
+        <div class="tour-header">
+            <div class="tour-badge-title">
+                <div class="tour-step-pill">
+                    <i class="ph-fill ph-compass"></i>
+                    <span id="tour-step-badge">Step 1 of 7</span>
+                </div>
+                <h3 id="tour-title" class="tour-title">Welcome to Argus</h3>
+            </div>
+            <button id="tour-close-btn" class="tour-close-btn" title="Exit Tour (Esc)">&times;</button>
+        </div>
+        
+        <div id="tour-body" class="tour-body">
+            <!-- Dynamic step instructions -->
+        </div>
+
+        <div class="tour-footer">
+            <div id="tour-dots" class="tour-dots">
+                <!-- Dots generated in JS -->
+            </div>
+            <div class="tour-actions">
+                <button id="tour-skip-btn" class="btn btn-outline btn-small">Skip Tour</button>
+                <button id="tour-prev-btn" class="btn btn-secondary btn-small"><i class="ph ph-arrow-left"></i> Back</button>
+                <button id="tour-next-btn" class="btn btn-primary btn-small">Next <i class="ph ph-arrow-right"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
