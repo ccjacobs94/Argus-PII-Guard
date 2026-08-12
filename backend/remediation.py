@@ -272,14 +272,24 @@ def _redact_plain_text(content: str, line_number: int, start_col: int, end_col: 
         if 0 <= start_col < len(line) and line[start_col:end_col] == match_text:
             new_line = line[:start_col] + masked + line[end_col:]
             lines[target_idx] = new_line
-        elif match_text in line:
-            # Fallback: replace first occurrence of match_text on this line
-            lines[target_idx] = line.replace(match_text, masked, 1)
         else:
-            # Global single replacement fallback
-            full = "".join(lines)
-            if match_text in full:
-                return full.replace(match_text, masked, 1)
+            # Handle masked match_text (e.g. from secret detection)
+            if "..." in match_text and 0 <= start_col < end_col <= len(line):
+                seg = line[start_col:end_col]
+                # Allow redaction if the original line segment matches the unmasked parts
+                if match_text.startswith(seg[:4]) or match_text.endswith(seg[-4:]):
+                    new_line = line[:start_col] + masked + line[end_col:]
+                    lines[target_idx] = new_line
+                    return "".join(lines)
+                    
+            if match_text in line:
+                # Fallback: replace first occurrence of match_text on this line
+                lines[target_idx] = line.replace(match_text, masked, 1)
+            else:
+                # Global single replacement fallback
+                full = "".join(lines)
+                if match_text in full:
+                    return full.replace(match_text, masked, 1)
         return "".join(lines)
     else:
         # Fallback if line index is out of range
@@ -509,8 +519,16 @@ def batch_redact_file(
                 line = lines[line_no]
                 if 0 <= start < len(line) and line[start:end] == match_txt:
                     lines[line_no] = line[:start] + masked + line[end:]
-                elif match_txt in line:
-                    lines[line_no] = line.replace(match_txt, masked, 1)
+                else:
+                    # Handle masked match_text
+                    if "..." in match_txt and 0 <= start < end <= len(line):
+                        seg = line[start:end]
+                        if match_txt.startswith(seg[:4]) or match_txt.endswith(seg[-4:]):
+                            lines[line_no] = line[:start] + masked + line[end:]
+                            continue
+                            
+                    if match_txt in line:
+                        lines[line_no] = line.replace(match_txt, masked, 1)
 
         updated_content = "".join(lines)
         with open(file_path, "w", encoding=used_encoding) as f:

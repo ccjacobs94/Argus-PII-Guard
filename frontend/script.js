@@ -903,7 +903,7 @@ class ArgusTourEngine {
                 view: 'dashboard',
                 target: '#sidebar-logo-container',
                 title: 'Welcome to Argus PII Guard',
-                badge: 'Step 1 of 8',
+                badge: 'Step 1 of 9',
                 html: `
                     <p>Argus is your intelligent <strong>On-Device Privacy Sentinel</strong> designed to detect, verify, and neutralize data leaks before they cause harm.</p>
                     <ul class="tour-feature-list">
@@ -931,7 +931,7 @@ class ArgusTourEngine {
                 view: 'dashboard',
                 target: '#target-folders-card',
                 title: '1. Select Target Folders',
-                badge: 'Step 2 of 8',
+                badge: 'Step 2 of 9',
                 html: `
                     <p>Select which directories or project workspaces you want Argus to guard and inspect.</p>
                     <p>Click the <strong><i class="ph-bold ph-plus-circle" style="color:var(--argus-teal)"></i> Add Folder</strong> button to choose local paths on your machine.</p>
@@ -947,7 +947,7 @@ class ArgusTourEngine {
                 view: 'dashboard',
                 target: '#scan-card',
                 title: '2. Launch Sentinel Inspection',
-                badge: 'Step 3 of 8',
+                badge: 'Step 3 of 9',
                 html: `
                     <p>Argus provides two flexible inspection modes tailored to your workflow:</p>
                     <ul class="tour-feature-list">
@@ -971,7 +971,7 @@ class ArgusTourEngine {
                 view: 'dashboard',
                 target: '#scan-progress-container',
                 title: '3. Real-Time Radar & Engine Telemetry',
-                badge: 'Step 4 of 8',
+                badge: 'Step 4 of 9',
                 html: `
                     <p>During scanning, the <strong>Sentinel Orbital Radar</strong> provides live telemetry as files are inspected:</p>
                     <ul class="tour-feature-list">
@@ -996,7 +996,7 @@ class ArgusTourEngine {
                 view: 'results',
                 target: '#results-list',
                 title: '4. Triage & Batch Remediation',
-                badge: 'Step 5 of 8',
+                badge: 'Step 5 of 9',
                 html: `
                     <p>When sensitive data (such as API keys, SSNs, credit cards, or passwords) is detected, it is listed here for immediate action:</p>
                     <ul class="tour-feature-list">
@@ -1032,7 +1032,7 @@ class ArgusTourEngine {
                 target: '#preview-modal .modal-content',
                 placement: 'right',
                 title: '5. Deep Remediation Inspector &amp; Hotkeys',
-                badge: 'Step 6 of 8',
+                badge: 'Step 6 of 9',
                 html: `
                     <p>The <strong>Argus Remediation Inspector</strong> provides full contextual control over every detected finding:</p>
                     <ul class="tour-feature-list">
@@ -1058,7 +1058,7 @@ class ArgusTourEngine {
                         <button id="tour-preview-img-btn" class="btn btn-secondary btn-small" style="flex:1; font-size:12px;"><i class="ph-fill ph-image"></i> Preview Vision AI (.png)</button>
                     </div>
                 `,
-                nextText: 'Next: Allowed Exceptions & Safety →',
+                nextText: 'Next: Smart Secret Detection →',
                 onEnter: () => {
                     const modal = document.getElementById('preview-modal');
                     if (modal) modal.classList.add('tour-preview-mode');
@@ -1079,11 +1079,36 @@ class ArgusTourEngine {
                 }
             },
             {
+                id: 'smart-secrets',
+                view: 'results',
+                target: '#tab-active-findings',
+                title: '6. Smart Secret & Entropy Detection',
+                badge: 'Step 7 of 9',
+                html: `
+                    <p>Argus now detects high-entropy digital credentials and secrets beyond standard PII:</p>
+                    <ul class="tour-feature-list">
+                        <li class="tour-feature-item">
+                            <i class="ph-fill ph-key" style="color:var(--argus-teal)"></i>
+                            <div><strong>Multi-Tier Detection:</strong> Uses ultra-fast regex for known vendor keys (AWS, Stripe, OpenAI) and Shannon Entropy for generic tokens.</div>
+                        </li>
+                        <li class="tour-feature-item">
+                            <i class="ph-fill ph-eye-slash" style="color:var(--argus-green)"></i>
+                            <div><strong>Memory-Safe Handling:</strong> Detected secrets are securely masked in memory instantly to prevent accidental logging or exposure.</div>
+                        </li>
+                        <li class="tour-feature-item">
+                            <i class="ph-fill ph-eraser" style="color:var(--argus-periwinkle)"></i>
+                            <div><strong>Safe Remediation:</strong> In-place redaction replaces the sensitive token perfectly using positional masking without breaking file formatting.</div>
+                        </li>
+                    </ul>
+                `,
+                nextText: 'Next: Allowed Exceptions & Safety →'
+            },
+            {
                 id: 'settings-config',
                 view: 'settings',
                 target: '#allowed-exceptions-card',
-                title: '6. Allowed Exceptions &amp; Safety Preferences',
-                badge: 'Step 7 of 8',
+                title: '7. Allowed Exceptions &amp; Safety Preferences',
+                badge: 'Step 8 of 9',
                 html: `
                     <p>Customize your remediation safety rules and whitelisted exceptions:</p>
                     <ul class="tour-feature-list">
@@ -1107,8 +1132,8 @@ class ArgusTourEngine {
                 id: 'model-management',
                 view: 'settings',
                 target: '#model-provider-row',
-                title: '7. Local Model Engine & Hardware Profiling',
-                badge: 'Step 8 of 8',
+                title: '8. Local Model Engine & Hardware Profiling',
+                badge: 'Step 9 of 9',
                 html: `
                     <p>Argus supports <strong>two AI inference engines</strong> for maximum flexibility:</p>
                     <ul class="tour-feature-list">
