@@ -192,9 +192,12 @@ def get_cpu_info():
     # Try to get a better CPU brand string on Windows via WMI, or /proc/cpuinfo on Linux
     try:
         if sys.platform == "win32":
+            win_flags = {}
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                win_flags["creationflags"] = subprocess.CREATE_NO_WINDOW
             out = subprocess.check_output(
                 ["wmic", "cpu", "get", "name"],
-                text=True, creationflags=subprocess.CREATE_NO_WINDOW
+                text=True, **win_flags
             )
             lines = [l.strip() for l in out.strip().splitlines() if l.strip() and l.strip().lower() != "name"]
             if lines:
@@ -215,9 +218,12 @@ def get_cpu_info():
     physical_cores = cpu_threads
     try:
         if sys.platform == "win32":
+            win_flags = {}
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                win_flags["creationflags"] = subprocess.CREATE_NO_WINDOW
             out = subprocess.check_output(
                 ["wmic", "cpu", "get", "NumberOfCores"],
-                text=True, creationflags=subprocess.CREATE_NO_WINDOW
+                text=True, **win_flags
             )
             lines = [l.strip() for l in out.strip().splitlines() if l.strip() and l.strip().lower() != "numberofcores"]
             if lines:
@@ -252,12 +258,12 @@ def get_gpu_info():
     Returns {"gpu_name": str|None, "gpu_vram_gb": float|None}.
     """
     try:
-        flags = 0
-        if sys.platform == "win32":
-            flags = subprocess.CREATE_NO_WINDOW
+        win_flags = {}
+        if sys.platform == "win32" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+            win_flags["creationflags"] = subprocess.CREATE_NO_WINDOW
         out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
-            text=True, creationflags=flags, timeout=5
+            text=True, timeout=5, **win_flags
         )
         line = out.strip().splitlines()[0]
         parts = [p.strip() for p in line.split(",")]

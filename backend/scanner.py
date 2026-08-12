@@ -193,9 +193,9 @@ def ensure_ollama_running():
         return False, f"Could not connect to remote Ollama server at {addr}."
 
     try:
-        flags = 0
-        if os.name == 'nt':
-            flags = subprocess.CREATE_NO_WINDOW
+        popen_kwargs = {}
+        if os.name == 'nt' and hasattr(subprocess, "CREATE_NO_WINDOW"):
+            popen_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         
         settings = load_settings()
         concurrency = settings.get("concurrency", "auto")
@@ -211,8 +211,9 @@ def ensure_ollama_running():
         env = os.environ.copy()
         env["OLLAMA_NUM_PARALLEL"] = str(concurrency)
         env["OLLAMA_MAX_LOADED_MODELS"] = str(max(concurrency, 2))
+        popen_kwargs["env"] = env
         
-        subprocess.Popen(["ollama", "serve"], creationflags=flags, env=env)
+        subprocess.Popen(["ollama", "serve"], **popen_kwargs)
         
         for _ in range(10):
             time.sleep(1)

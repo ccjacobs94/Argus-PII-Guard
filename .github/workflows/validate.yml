@@ -48,6 +48,7 @@ jobs:
       - name: "Step 2: Full Test Suite Execution"
         id: run-tests
         run: |
+          set -o pipefail
           pytest tests/ -v -ra --tb=short 2>&1 | tee pytest_output.log
 
       - name: Publish Test Summary
@@ -63,7 +64,9 @@ jobs:
       - name: "Step 3: Coverage Gate Verification"
         id: run-coverage
         run: |
+          set -o pipefail
           pytest --cov=backend --cov-report=term-missing --cov-fail-under=85 2>&1 | tee coverage_output.log
+
 
       - name: Publish Coverage Summary
         if: always()
