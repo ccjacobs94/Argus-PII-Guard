@@ -25,6 +25,10 @@
      - Edge cases (corrupted files, empty files, missing keys, special characters).
      - Error handling and graceful fallbacks.
 
+4. **Onboarding Tour & Feature Demo Synchronization**:
+   - Whenever any new feature, UI view, setting, or scanner capability is added or significantly modified, the interactive onboarding tour/demo (`ArgusTourEngine` steps in `frontend/script.js` and corresponding tour elements in `frontend/index.html`) **must be updated**.
+   - All new capabilities must be properly introduced in the product demo before changes reach the `main` branch.
+
 ---
 
 ## 🧪 Test Architecture & Structure
@@ -59,6 +63,10 @@ pytest tests/ -v
 ```bash
 pytest --cov=backend --cov-report=term-missing --cov-fail-under=85
 ```
+
+### Step 4: Onboarding Tour & Feature Demo Verification
+- Confirm that any new UI views, settings, scanner capabilities, or interactive features are added to `ArgusTourEngine` steps in `frontend/script.js` and tour elements in `frontend/index.html`.
+- Ensure feature demos and interactive product tours are fully verified before merging to `main`.
 
 ---
 

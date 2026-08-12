@@ -15,9 +15,10 @@
    - All tests in `tests/` must pass cleanly before ending any task.
    - For more details, consult `VALIDATION_PIPELINE.md`.
 
-## Mandatory Onboarding Tour Synchronization Rule
+## Mandatory Onboarding Tour & Feature Demo Synchronization Rule
 
-4. **Onboarding Tour Maintenance**:
+4. **Onboarding Tour & Feature Demo Maintenance**:
    - Whenever any new feature, UI view, setting, or scanner capability is added or significantly modified in Argus PII Guard, you MUST update the `ArgusTourEngine` steps in `frontend/script.js` and corresponding tour elements in `frontend/index.html`.
-   - Ensure the interactive product tour accurately introduces users to all new and updated features.
+   - Ensure the interactive product tour/demo accurately introduces users to all new and updated features before changes reach the `main` branch.
+   - For full pipeline validation details, consult `VALIDATION_PIPELINE.md`.
 
