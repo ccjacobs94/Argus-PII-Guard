@@ -26,7 +26,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.venv
-          key: ${{ runner.os }}-venv-3.11-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-venv-3.11-v2-${{ hashFiles('**/requirements.txt') }}
 
 
       - name: Install Dependencies
@@ -57,7 +57,7 @@ jobs:
           if [ -f pytest_output.log ]; then
             echo "### Pytest Execution Summary" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 100 pytest_output.log >> $GITHUB_STEP_SUMMARY
+            cat pytest_output.log >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
