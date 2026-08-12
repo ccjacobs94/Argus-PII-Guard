@@ -3,6 +3,7 @@ import json
 import tempfile
 import sys
 import re
+import hashlib
 import concurrent.futures
 import threading
 import subprocess
@@ -23,6 +24,23 @@ pillow_heif.register_heif_opener()
 # Default model names — overridden by settings at runtime
 DEFAULT_VISION_MODEL = "gemma4:12b"
 DEFAULT_TEXT_MODEL = "gemma4:12b"
+
+
+def calculate_file_checksum(file_path, chunk_size: int = 65536) -> str:
+    """
+    Calculates SHA-256 checksum of a file in streaming chunks for memory efficiency.
+    Returns hexadecimal digest string, or empty string on read/permission errors.
+    """
+    hasher = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+    except Exception as e:
+        print(f"Error computing checksum for {file_path}: {e}")
+        return ""
+
 
 
 def get_active_vision_model():
@@ -655,36 +673,58 @@ def run_scan(folders, save_results_callback, rescan_all=False):
             
         str_path = str(file_path)
         try:
-            mtime = os.path.getmtime(str_path)
+            stat = os.stat(str_path)
+            mtime = stat.st_mtime
+            size = stat.st_size
         except:
             mtime = 0
+            size = 0
             
-        if not rescan_all and str_path in file_cache and file_cache[str_path].get("mtime") == mtime:
-            cached_result = file_cache[str_path].get("result")
-            if not cached_result or not cached_result.get("compromised"):
-                with state_lock:
-                    scan_state.progress["skipped_count"] += 1
-                    scan_state.progress["scanned_files"] += 1
-                return
+        current_checksum = calculate_file_checksum(str_path)
+
+        if not rescan_all and str_path in file_cache:
+            cached_entry = file_cache[str_path]
+            cached_checksum = cached_entry.get("checksum")
+            
+            # Determine if the file is unmodified
+            is_unmodified = False
+            if cached_checksum:
+                if current_checksum and cached_checksum == current_checksum:
+                    is_unmodified = True
             else:
-                # Add previously flagged back
-                ext = file_path.suffix.lower()
-                with state_lock:
-                    file_type_label = "Image" if ext in IMAGE_EXTENSIONS else "HEIC" if ext in HEIC_EXTENSIONS else "PDF" if ext in PDF_EXTENSIONS else "Office" if ext in OFFICE_EXTENSIONS else "Text"
-                    scan_state.flagged_files.append({
-                        "file": str_path,
-                        "type": file_type_label,
-                        "reason": cached_result.get("reason"),
-                        "selected": False,
-                        "auto_deleted": False, # Cached won't auto-delete retroactively
-                        "needs_ai_verification": cached_result.get("needs_ai_verification", False),
-                        "compromised": True,
-                        "items": cached_result.get("items", []),
-                        "snippets": cached_result.get("snippets", [])
-                    })
-                    scan_state.progress["flagged_count"] = len(scan_state.flagged_files)
-                    scan_state.progress["scanned_files"] += 1
-                return
+                # Legacy cache migration fallback
+                if cached_entry.get("mtime") == mtime:
+                    is_unmodified = True
+                    cached_entry["checksum"] = current_checksum
+                    cached_entry["size"] = size
+
+            if is_unmodified:
+                cached_result = cached_entry.get("result")
+                if not cached_result or not cached_result.get("compromised"):
+                    with state_lock:
+                        scan_state.progress["skipped_count"] += 1
+                        scan_state.progress["scanned_files"] += 1
+                    return
+                else:
+                    # Add previously flagged back
+                    ext = file_path.suffix.lower()
+                    with state_lock:
+                        file_type_label = "Image" if ext in IMAGE_EXTENSIONS else "HEIC" if ext in HEIC_EXTENSIONS else "PDF" if ext in PDF_EXTENSIONS else "Office" if ext in OFFICE_EXTENSIONS else "Text"
+                        scan_state.flagged_files.append({
+                            "file": str_path,
+                            "type": file_type_label,
+                            "reason": cached_result.get("reason"),
+                            "selected": False,
+                            "auto_deleted": False, # Cached won't auto-delete retroactively
+                            "needs_ai_verification": cached_result.get("needs_ai_verification", False),
+                            "compromised": True,
+                            "items": cached_result.get("items", []),
+                            "snippets": cached_result.get("snippets", []),
+                            "checksum": current_checksum
+                        })
+                        scan_state.progress["flagged_count"] = len(scan_state.flagged_files)
+                        scan_state.progress["scanned_files"] += 1
+                    return
                 
         ext = file_path.suffix.lower()
         result = None
@@ -702,7 +742,12 @@ def run_scan(folders, save_results_callback, rescan_all=False):
         if scan_state.should_stop:
             return
             
-        file_cache[str_path] = {"mtime": mtime, "result": result}
+        file_cache[str_path] = {
+            "mtime": mtime,
+            "size": size,
+            "checksum": current_checksum,
+            "result": result
+        }
             
         if result and result.get("compromised"):
             deleted_successfully = False
@@ -726,7 +771,8 @@ def run_scan(folders, save_results_callback, rescan_all=False):
                     "needs_ai_verification": needs_ai_verification,
                     "compromised": True,
                     "items": result.get("items", []),
-                    "snippets": result.get("snippets", [])
+                    "snippets": result.get("snippets", []),
+                    "checksum": current_checksum
                 })
                 scan_state.progress["flagged_count"] = len(scan_state.flagged_files)
                 

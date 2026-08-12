@@ -16,10 +16,11 @@ from backend.scanner import (
     run_scan, start_scan_thread, stop_scan,
     ScannerState, scan_state, locate_text_pii_matches,
     get_inference_response, get_model_provider,
-    get_active_vision_model, get_active_text_model
+    get_active_vision_model, get_active_text_model,
+    calculate_file_checksum
 )
 from backend.create_icon import generate_argus_icon
-from backend.state import save_cache
+from backend.state import save_cache, load_cache
 
 def test_generate_argus_icon(tmp_path, monkeypatch):
     # Verify icon generator runs and produces valid image assets
@@ -409,6 +410,102 @@ def test_run_scan_cache_compromised_reload(tmp_path):
         assert results[0]["file"] == str(flagged_file)
         assert results[0]["reason"] == "Pre-flagged in cache"
         assert results[0]["compromised"] is True
+
+def test_calculate_file_checksum(tmp_path):
+    # Valid file with known content
+    test_file = tmp_path / "hello.txt"
+    test_file.write_text("Hello World", encoding="utf-8")
+    chk = calculate_file_checksum(test_file)
+    import hashlib
+    expected_hash = hashlib.sha256(b"Hello World").hexdigest()
+    assert chk == expected_hash
+
+    # Empty file
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("", encoding="utf-8")
+    assert calculate_file_checksum(empty_file) == hashlib.sha256(b"").hexdigest()
+
+    # Non-existent file returns empty string
+    assert calculate_file_checksum(tmp_path / "does_not_exist.txt") == ""
+
+def test_run_scan_altered_file_detection(tmp_path):
+    folder = tmp_path / "scan_alter_dir"
+    folder.mkdir()
+    target_file = folder / "document.txt"
+
+    # Step 1: Initial clean file
+    target_file.write_text("Clean initial document with no sensitive data", encoding="utf-8")
+    results1 = []
+    with patch("backend.scanner.load_settings", lambda: {"concurrency": "1", "image_optimization": "medium", "text_scan_mode": "regex_only"}):
+        run_scan([str(folder)], lambda r: results1.extend(r), rescan_all=False)
+        assert len(results1) == 0
+        cache1 = load_cache()
+        assert str(target_file) in cache1
+        assert cache1[str(target_file)]["checksum"] == calculate_file_checksum(target_file)
+        assert cache1[str(target_file)]["result"]["compromised"] is False
+
+    # Step 2: Alter the file by adding an SSN
+    target_file.write_text("Document updated: SSN is 123-45-6789 confidential", encoding="utf-8")
+    results2 = []
+    with patch("backend.scanner.load_settings", lambda: {"concurrency": "1", "image_optimization": "medium", "text_scan_mode": "regex_only"}):
+        run_scan([str(folder)], lambda r: results2.extend(r), rescan_all=False)
+        # Checksum change was detected, file was re-scanned and flagged
+        assert len(results2) == 1
+        assert results2[0]["file"] == str(target_file)
+        assert results2[0]["compromised"] is True
+        cache2 = load_cache()
+        assert cache2[str(target_file)]["checksum"] == calculate_file_checksum(target_file)
+        assert cache2[str(target_file)]["result"]["compromised"] is True
+
+    # Step 3: Alter the file again to remediate / clean it
+    target_file.write_text("Remediated document: all sensitive data removed", encoding="utf-8")
+    results3 = []
+    with patch("backend.scanner.load_settings", lambda: {"concurrency": "1", "image_optimization": "medium", "text_scan_mode": "regex_only"}):
+        run_scan([str(folder)], lambda r: results3.extend(r), rescan_all=False)
+        # Checksum change was detected, file was re-scanned and cleared
+        assert len(results3) == 0
+        cache3 = load_cache()
+        assert cache3[str(target_file)]["checksum"] == calculate_file_checksum(target_file)
+        assert cache3[str(target_file)]["result"]["compromised"] is False
+
+def test_run_scan_unmodified_file_skips_inspection(tmp_path):
+    folder = tmp_path / "skip_dir"
+    folder.mkdir()
+    clean_file = folder / "clean.txt"
+    clean_file.write_text("Static clean content", encoding="utf-8")
+
+    # Initial scan to populate cache
+    with patch("backend.scanner.load_settings", lambda: {"concurrency": "1", "image_optimization": "medium", "text_scan_mode": "regex_only"}):
+        run_scan([str(folder)], lambda r: None, rescan_all=False)
+
+    # Second scan: mock inspect_text to ensure it is NOT invoked
+    with patch("backend.scanner.inspect_text") as mock_inspect:
+        with patch("backend.scanner.load_settings", lambda: {"concurrency": "1", "image_optimization": "medium", "text_scan_mode": "regex_only"}):
+            run_scan([str(folder)], lambda r: None, rescan_all=False)
+            mock_inspect.assert_not_called()
+
+def test_run_scan_legacy_cache_migration(tmp_path):
+    folder = tmp_path / "legacy_dir"
+    folder.mkdir()
+    doc_file = folder / "legacy_doc.txt"
+    doc_file.write_text("Legacy doc content", encoding="utf-8")
+
+    mtime = os.path.getmtime(str(doc_file))
+    # Cache without 'checksum' field (legacy format)
+    save_cache({
+        str(doc_file): {
+            "mtime": mtime,
+            "result": {"compromised": False, "reason": "No PII"}
+        }
+    })
+
+    with patch("backend.scanner.load_settings", lambda: {"concurrency": "1", "image_optimization": "medium", "text_scan_mode": "regex_only"}):
+        run_scan([str(folder)], lambda r: None, rescan_all=False)
+        cache = load_cache()
+        # Legacy entry was migrated with checksum and size
+        assert "checksum" in cache[str(doc_file)]
+        assert cache[str(doc_file)]["checksum"] == calculate_file_checksum(doc_file)
+        assert "size" in cache[str(doc_file)]
 
 def test_start_and_stop_scan(tmp_path):
     scan_state.reset()

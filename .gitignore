@@ -2,27 +2,50 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+*.egg-info/
+.eggs/
 
-# PyInstaller / Build outputs
+# PyInstaller & Build outputs
 build/
 dist/
+*.spec.bak
 installer/Output/
+Output/
 *.exe
+*.zip
+*.tar.gz
+*.msi
 
-# Local Runtime & Application state
+# Local Runtime, Models & Application state
 cache.json
 results.json
 settings.json
 *.log
-models/*.gguf
+models/
 *.gguf
+*.tmp
+*.part
+*.crdownload
+*.download
 
-# Test & Coverage outputs
+# Environment & Local Secrets
+.env
+.env.*
+*.env
+*.local
+
+# Test, Coverage & Scratch artifacts
 .coverage
 .coverage.*
 .pytest_cache/
 htmlcov/
+coverage.xml
+coverage.json
 pytestdebug.log
+scratch/
+tmp/
+temp/
 
 # Virtual environments
 .venv/
@@ -32,12 +55,16 @@ ENV/
 
 # OS metadata
 .DS_Store
+._*
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# IDEs and Editors
+# IDEs, Editors & Backup files
 .vscode/
 .idea/
 *.swp
 *.swo
+*.bak
+*.orig
+*~

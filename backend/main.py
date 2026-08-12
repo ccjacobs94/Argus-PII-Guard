@@ -130,18 +130,24 @@ class Api:
         
         if not result.get("compromised"):
             from .state import load_cache, save_cache
+            from .scanner import calculate_file_checksum
             cache = load_cache()
             str_path = str(file_path)
-            if str_path in cache:
-                cache[str_path]["result"] = result
-                save_cache(cache)
-            else:
-                try:
-                    mtime = os.path.getmtime(str_path)
-                except:
-                    mtime = 0
-                cache[str_path] = {"mtime": mtime, "result": result}
-                save_cache(cache)
+            try:
+                stat = os.stat(str_path)
+                mtime = stat.st_mtime
+                size = stat.st_size
+            except:
+                mtime = 0
+                size = 0
+            checksum = calculate_file_checksum(str_path)
+            cache[str_path] = {
+                "mtime": mtime,
+                "size": size,
+                "checksum": checksum,
+                "result": result
+            }
+            save_cache(cache)
         
         results = load_results()
         for r in results:
@@ -179,15 +185,22 @@ class Api:
 
     def mark_files_ok(self, file_paths):
         from .state import load_cache, save_cache
+        from .scanner import calculate_file_checksum
         cache = load_cache()
         for path in file_paths:
             str_path = str(path)
             try:
-                mtime = os.path.getmtime(str_path)
+                stat = os.stat(str_path)
+                mtime = stat.st_mtime
+                size = stat.st_size
             except:
                 mtime = 0
+                size = 0
+            checksum = calculate_file_checksum(str_path)
             cache[str_path] = {
                 "mtime": mtime,
+                "size": size,
+                "checksum": checksum,
                 "result": {"compromised": False, "marked_ok": True, "reason": "Marked as OK by user"}
             }
         save_cache(cache)
@@ -221,7 +234,8 @@ class Api:
             saved_items = file_record.get("items", []) if file_record else []
             saved_snippets = file_record.get("snippets", []) if file_record else []
 
-            from .scanner import IMAGE_EXTENSIONS, HEIC_EXTENSIONS, PDF_EXTENSIONS, OFFICE_EXTENSIONS
+            from .scanner import IMAGE_EXTENSIONS, HEIC_EXTENSIONS, PDF_EXTENSIONS, OFFICE_EXTENSIONS, calculate_file_checksum
+            checksum = file_record.get("checksum") if file_record and file_record.get("checksum") else calculate_file_checksum(file_path)
 
             if ext in IMAGE_EXTENSIONS or ext in HEIC_EXTENSIONS:
                 if ext in HEIC_EXTENSIONS:
@@ -248,7 +262,8 @@ class Api:
                     "content_type": "image",
                     "data": data_uri,
                     "items": saved_items,
-                    "reason": reason or "Image inspected for sensitive content"
+                    "reason": reason or "Image inspected for sensitive content",
+                    "checksum": checksum
                 }
             else:
                 from .scanner import get_file_text_content, locate_text_pii_matches
@@ -267,7 +282,8 @@ class Api:
                     "content_type": "text",
                     "content": content,
                     "highlights": highlights,
-                    "reason": reason or (f"Flagged with {len(highlights)} PII findings" if highlights else "No PII matches detected")
+                    "reason": reason or (f"Flagged with {len(highlights)} PII findings" if highlights else "No PII matches detected"),
+                    "checksum": checksum
                 }
         except Exception as e:
             return {"error": f"Preview error: {str(e)}"}
