@@ -9,6 +9,8 @@ import threading
 import subprocess
 import urllib.request
 import time
+import math
+import bisect
 import ollama
 from pathlib import Path
 from PIL import Image
@@ -102,10 +104,111 @@ state_lock = threading.Lock()
 # Compiled regex patterns for PII detection in text files
 PII_PATTERNS = {
     "SSN": re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
-    "Credit Card": re.compile(r"\b(?:\d{4}[ -]?){3}\d{4}\b"),
-    "Private Key": re.compile(r"-----BEGIN [A-Z ]+ PRIVATE KEY-----"),
-    "API/Secret Key": re.compile(r"(?i)\b(api[_-]?key|apikey|secret[_-]?key|client[_-]?secret|private[_-]?key|db[_-]?password)\s*[:=]\s*['\"][a-zA-Z0-9_\-\.\+=/]{16,}['\"]")
+    "Credit Card": re.compile(r"\b(?:\d{4}[ -]?){3}\d{4}\b")
 }
+
+VENDOR_PATTERNS = {
+    "AWS Access Key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    "OpenAI API Key": re.compile(r"\bsk-[a-zA-Z0-9]{32,}\b|\bsk-proj-[a-zA-Z0-9_\-]{40,}\b"),
+    "GitHub Token": re.compile(r"\bgh[po]_[a-zA-Z0-9]{36}\b"),
+    "Private Key": re.compile(r"-----BEGIN (?:RSA|OPENSSH|EC) PRIVATE KEY-----"),
+    "Database URI": re.compile(r"(?i)(?:mongodb|postgres|mysql|redis)://[^\s]+")
+}
+
+GENERIC_SECRET_PATTERN = re.compile(r"\b[a-zA-Z0-9_\-\.\+=/]{16,}\b")
+CONTEXT_PATTERN = re.compile(r"(?i)(secret|token|password|bearer|private)")
+
+def calculate_shannon_entropy(data: str) -> float:
+    if not data:
+        return 0.0
+    entropy = 0.0
+    for x in set(data):
+        p_x = float(data.count(x)) / len(data)
+        if p_x > 0:
+            entropy += - p_x * math.log2(p_x)
+    return entropy
+
+def mask_secret(secret: str) -> str:
+    if len(secret) <= 8:
+        return "***"
+    return secret[:8] + "..." + secret[-4:]
+
+def get_line_starts(content: str):
+    return [0] + [m.end() for m in re.finditer(r'\n', content)]
+
+def get_line_col(line_starts, index):
+    line_idx = bisect.bisect_right(line_starts, index) - 1
+    if line_idx < 0:
+        line_idx = 0
+    return line_idx + 1, index - line_starts[line_idx]
+
+def detect_secrets(content: str) -> list:
+    matches = []
+    if not content:
+        return matches
+    line_starts = get_line_starts(content)
+    
+    tier1_intervals = []
+    
+    # Tier 1
+    for pattern_name, pattern in VENDOR_PATTERNS.items():
+        for m in pattern.finditer(content):
+            start, end = m.start(), m.end()
+            tier1_intervals.append((start, end))
+            secret_val = m.group(0)
+            
+            if pattern_name == "Private Key":
+                masked_val = secret_val
+            else:
+                masked_val = mask_secret(secret_val)
+                
+            line_num, start_col = get_line_col(line_starts, start)
+            _, end_col = get_line_col(line_starts, end)
+            
+            matches.append({
+                "line_number": line_num,
+                "start_col": start_col,
+                "end_col": end_col,
+                "match_text": masked_val,
+                "raw_match": secret_val,
+                "pattern_name": pattern_name,
+                "source": "regex"
+            })
+            
+    # Tier 2 & 3
+    for m in GENERIC_SECRET_PATTERN.finditer(content):
+        start, end = m.start(), m.end()
+        
+        # Check overlap
+        overlap = False
+        for (t1_start, t1_end) in tier1_intervals:
+            if not (end <= t1_start or start >= t1_end):
+                overlap = True
+                break
+        if overlap:
+            continue
+            
+        candidate = m.group(0)
+        entropy = calculate_shannon_entropy(candidate)
+        if entropy >= 4.5:
+            context_start = max(0, start - 50)
+            context_end = min(len(content), end + 50)
+            context_window = content[context_start:context_end]
+            
+            if CONTEXT_PATTERN.search(context_window):
+                line_num, start_col = get_line_col(line_starts, start)
+                _, end_col = get_line_col(line_starts, end)
+                matches.append({
+                    "line_number": line_num,
+                    "start_col": start_col,
+                    "end_col": end_col,
+                    "match_text": mask_secret(candidate),
+                    "raw_match": candidate,
+                    "pattern_name": "Generic API Token",
+                    "source": "entropy_context"
+                })
+                
+    return matches
 
 def get_system_ram():
     """
@@ -442,6 +545,12 @@ def locate_text_pii_matches(content: str, ai_snippets: list = None, file_path: s
         return []
 
     matches = []
+    
+    try:
+        matches.extend(detect_secrets(content))
+    except Exception as e:
+        print(f"Error in detect_secrets: {e}")
+
     lines = content.splitlines()
 
     # 1. Regex pattern matches
@@ -501,7 +610,10 @@ def locate_text_pii_matches(content: str, ai_snippets: list = None, file_path: s
                 from backend.remediation import is_file_or_match_ignored
             matches = [
                 m for m in matches
-                if not is_file_or_match_ignored(file_path, match_text=m.get("match_text"), pattern_name=m.get("pattern_name"))
+                if not (
+                    is_file_or_match_ignored(file_path, match_text=m.get("match_text"), pattern_name=m.get("pattern_name"))
+                    or (m.get("raw_match") and is_file_or_match_ignored(file_path, match_text=m.get("raw_match"), pattern_name=m.get("pattern_name")))
+                )
             ]
         except Exception:
             pass
@@ -594,6 +706,14 @@ def inspect_text(file_path: Path, text_scan_mode: str = "regex_llm") -> dict:
             for name, pattern in PII_PATTERNS.items():
                 if pattern.search(content):
                     matched_patterns.append(name)
+            
+            try:
+                secret_matches = detect_secrets(content)
+                for sm in secret_matches:
+                    if sm["pattern_name"] not in matched_patterns:
+                        matched_patterns.append(sm["pattern_name"])
+            except Exception as e:
+                pass
             
             if not matched_patterns:
                 return {"compromised": False, "reason": "No PII patterns matched via regex"}

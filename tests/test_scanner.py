@@ -9,7 +9,8 @@ from PIL import Image
 import pytest
 from backend.scanner import (
     get_system_ram, get_auto_config,
-    PII_PATTERNS, parse_ai_response,
+    PII_PATTERNS, VENDOR_PATTERNS, calculate_shannon_entropy, detect_secrets, mask_secret,
+    parse_ai_response,
     get_file_text_content, inspect_text,
     verify_text_file_with_ai, inspect_image, process_heic_image,
     get_scannable_files, get_optimized_image_path,
@@ -80,14 +81,44 @@ def test_pii_regex_patterns():
     assert PII_PATTERNS["Credit Card"].search(cc_text) is not None
 
     pk_text = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0...\n-----END RSA PRIVATE KEY-----"
-    assert PII_PATTERNS["Private Key"].search(pk_text) is not None
+    assert VENDOR_PATTERNS["Private Key"].search(pk_text) is not None
 
-    api_text = 'const apiKey = "sk_live_1234567890abcdef123456";'
-    assert PII_PATTERNS["API/Secret Key"].search(api_text) is not None
+    api_text = 'const apiKey = "sk-proj-1234567890abcdef1234567890abcdef12345678";'
+    assert VENDOR_PATTERNS["OpenAI API Key"].search(api_text) is not None
 
     clean_text = "Just a regular text document with no sensitive data."
     for pattern in PII_PATTERNS.values():
         assert pattern.search(clean_text) is None
+    for pattern in VENDOR_PATTERNS.values():
+        assert pattern.search(clean_text) is None
+
+def test_detect_secrets():
+    content = """Line 1: Clean line
+Line 2: AWS Key is AKIA1234567890ABCDEF here
+Line 3: Secret token is "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+"""
+    # Test Tier 1 (AWS)
+    matches = detect_secrets(content)
+    aws_matches = [m for m in matches if m["pattern_name"] == "AWS Access Key"]
+    assert len(aws_matches) == 1
+    assert aws_matches[0]["line_number"] == 2
+    assert "..." in aws_matches[0]["match_text"]  # Should be masked
+    
+    # Test Tier 2 & 3 (Generic Token + Context)
+    gen_matches = [m for m in matches if m["pattern_name"] == "Generic API Token"]
+    assert len(gen_matches) == 1
+    assert gen_matches[0]["line_number"] == 3
+    assert "..." in gen_matches[0]["match_text"]
+
+def test_entropy_and_masking():
+    # High entropy string
+    assert calculate_shannon_entropy("a1b2c3d4e5f6g7h8") > 3.0
+    # Low entropy string
+    assert calculate_shannon_entropy("aaaaaaaaaaaaaaaa") == 0.0
+    
+    # Masking
+    assert mask_secret("short") == "***"
+    assert mask_secret("AKIA1234567890ABCDEF") == "AKIA1234...CDEF"
 
 def test_parse_ai_response():
     valid_json = '{"compromised": true, "reason": "Contains SSN", "items": [{"label": "SSN Card", "box_2d": [100, 200, 300, 400], "description": "SSN"}], "snippets": ["123-45-6789"]}'
@@ -170,18 +201,20 @@ def test_locate_text_pii_matches():
     content = """Line 1: Clean line
 Line 2: User SSN is 123-45-6789 here
 Line 3: Clean line
-Line 4: Secret apiKey = "sk_live_1234567890abcdef123456"
+Line 4: Secret apiKey = "sk-proj-1234567890abcdef1234567890abcdef12345678"
 Line 5: Custom sensitive token secret_token_xyz
 """
     # Test regex only
     matches = locate_text_pii_matches(content)
     assert len(matches) >= 2
-    assert matches[0]["line_number"] == 2
-    assert matches[0]["pattern_name"] == "SSN"
-    assert matches[0]["match_text"] == "123-45-6789"
-    assert matches[0]["source"] == "regex"
-    assert matches[1]["line_number"] == 4
-    assert matches[1]["pattern_name"] == "API/Secret Key"
+    
+    ssn_matches = [m for m in matches if m["pattern_name"] == "SSN"]
+    assert len(ssn_matches) > 0
+    assert ssn_matches[0]["line_number"] == 2
+    
+    openai_matches = [m for m in matches if m["pattern_name"] == "OpenAI API Key"]
+    assert len(openai_matches) > 0
+    assert openai_matches[0]["line_number"] == 4
 
     # Test with AI snippets
     matches_with_ai = locate_text_pii_matches(content, ai_snippets=["secret_token_xyz", "", None])

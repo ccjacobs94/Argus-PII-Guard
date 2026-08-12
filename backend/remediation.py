@@ -272,14 +272,24 @@ def _redact_plain_text(content: str, line_number: int, start_col: int, end_col: 
         if 0 <= start_col < len(line) and line[start_col:end_col] == match_text:
             new_line = line[:start_col] + masked + line[end_col:]
             lines[target_idx] = new_line
-        elif match_text in line:
-            # Fallback: replace first occurrence of match_text on this line
-            lines[target_idx] = line.replace(match_text, masked, 1)
         else:
-            # Global single replacement fallback
-            full = "".join(lines)
-            if match_text in full:
-                return full.replace(match_text, masked, 1)
+            # Handle masked match_text (e.g. from secret detection)
+            if "..." in match_text and 0 <= start_col < end_col <= len(line):
+                seg = line[start_col:end_col]
+                # Allow redaction if the original line segment matches the unmasked parts
+                if match_text.startswith(seg[:4]) or match_text.endswith(seg[-4:]):
+                    new_line = line[:start_col] + masked + line[end_col:]
+                    lines[target_idx] = new_line
+                    return "".join(lines)
+                    
+            if match_text in line:
+                # Fallback: replace first occurrence of match_text on this line
+                lines[target_idx] = line.replace(match_text, masked, 1)
+            else:
+                # Global single replacement fallback
+                full = "".join(lines)
+                if match_text in full:
+                    return full.replace(match_text, masked, 1)
         return "".join(lines)
     else:
         # Fallback if line index is out of range
@@ -509,8 +519,16 @@ def batch_redact_file(
                 line = lines[line_no]
                 if 0 <= start < len(line) and line[start:end] == match_txt:
                     lines[line_no] = line[:start] + masked + line[end:]
-                elif match_txt in line:
-                    lines[line_no] = line.replace(match_txt, masked, 1)
+                else:
+                    # Handle masked match_text
+                    if "..." in match_txt and 0 <= start < end <= len(line):
+                        seg = line[start:end]
+                        if match_txt.startswith(seg[:4]) or match_txt.endswith(seg[-4:]):
+                            lines[line_no] = line[:start] + masked + line[end:]
+                            continue
+                            
+                    if match_txt in line:
+                        lines[line_no] = line.replace(match_txt, masked, 1)
 
         updated_content = "".join(lines)
         with open(file_path, "w", encoding=used_encoding) as f:
@@ -837,6 +855,22 @@ def remove_allowed_exception(exception_id: str, base_dir: str = ".") -> dict:
     return {"success": True, "removed": removed_entry}
 
 
+def _matches_pattern_or_mask(candidate: str, rule: str) -> bool:
+    if not candidate or not rule:
+        return False
+    if candidate.lower() == rule.lower():
+        return True
+    if "..." in candidate and len(rule) > 8:
+        cand_parts = candidate.split("...")
+        if len(cand_parts) == 2 and rule.lower().startswith(cand_parts[0].lower()) and rule.lower().endswith(cand_parts[1].lower()):
+            return True
+    if "..." in rule and len(candidate) > 8:
+        rule_parts = rule.split("...")
+        if len(rule_parts) == 2 and candidate.lower().startswith(rule_parts[0].lower()) and candidate.lower().endswith(rule_parts[1].lower()):
+            return True
+    return False
+
+
 def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_name: str = None, base_dir: str = ".") -> bool:
     """
     Determines if a file or finding is whitelisted via .argusignore or settings.
@@ -852,7 +886,7 @@ def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_nam
         if ex_file and (ex_file == norm_path or norm_path.endswith(ex_file)):
             if not ex_match:
                 return True # Whole file ignored
-            if match_text and match_text == ex_match:
+            if match_text and _matches_pattern_or_mask(match_text, ex_match):
                 return True # Specific match ignored
 
     # 2. Check .argusignore
@@ -867,7 +901,7 @@ def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_nam
             path_part, match_part = line_clean.split("::", 1)
             path_part = path_part.strip()
             match_part = match_part.strip()
-            if (path_part == norm_path or norm_path.endswith(path_part) or fnmatch.fnmatch(filename, path_part) or fnmatch.fnmatch(norm_path, path_part)) and match_text and match_text.lower() == match_part:
+            if (path_part == norm_path or norm_path.endswith(path_part) or fnmatch.fnmatch(filename, path_part) or fnmatch.fnmatch(norm_path, path_part)) and match_text and _matches_pattern_or_mask(match_text, match_part):
                 return True
         else:
             if (line_clean == norm_path or 
@@ -875,7 +909,8 @@ def is_file_or_match_ignored(file_path: str, match_text: str = None, pattern_nam
                 filename == line_clean or 
                 fnmatch.fnmatch(filename, line_clean) or 
                 fnmatch.fnmatch(norm_path, f"*{line_clean.strip('/')}*") or 
-                (match_text and match_text.lower() == line_clean)):
+                (match_text and _matches_pattern_or_mask(match_text, line_clean))):
                 return True
 
     return False
+
