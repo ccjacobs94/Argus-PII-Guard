@@ -580,6 +580,44 @@ class TestEdgeCasesAndParsing:
         lines = rem.load_argusignore(base_dir=str(tmp_path))
         assert "test_rule" in lines
 
+    def test_remove_allowed_exception_updates_argusignore(self, tmp_path):
+        dummy_file = tmp_path / "secret.txt"
+        dummy_file.write_text("secret payload", encoding="utf-8")
+
+        res1 = rem.mark_as_safe_exception(str(dummy_file), base_dir=str(tmp_path))
+        assert res1["success"] is True
+        ex_id1 = res1["exception"]["id"]
+
+        lines1 = rem.load_argusignore(base_dir=str(tmp_path))
+        assert len(lines1) > 0
+
+        res_rem = rem.remove_allowed_exception(ex_id1, base_dir=str(tmp_path))
+        assert res_rem["success"] is True
+
+        lines2 = rem.load_argusignore(base_dir=str(tmp_path))
+        assert len(lines2) == 0
+
+        # Verify normalized return values from get_allowed_exceptions
+        exceptions = rem.get_allowed_exceptions()
+        assert len([e for e in exceptions if e.get("id") == ex_id1]) == 0
+
+    def test_get_allowed_exceptions_normalization(self, tmp_path):
+        dummy_file = tmp_path / "sample.txt"
+        dummy_file.write_text("sample content", encoding="utf-8")
+
+        res = rem.mark_as_safe_exception(str(dummy_file), match_text="sample", base_dir=str(tmp_path))
+        ex_id = res["exception"]["id"]
+
+        exceptions = rem.get_allowed_exceptions()
+        matching = [e for e in exceptions if e.get("id") == ex_id]
+        assert len(matching) == 1
+        item = matching[0]
+        assert "target" in item
+        assert "type" in item
+        assert item["type"] == "Match Pattern"
+
+        rem.remove_allowed_exception(ex_id, base_dir=str(tmp_path))
+
     def test_sync_state_with_remaining_findings(self, tmp_path):
         test_file = tmp_path / "partial.txt"
         test_file.write_text("API_KEY=AKIAIOSFODNN7EXAMPLE\nSECOND_KEY=AKIAIOSFODNN7EXAMPLE2\n", encoding="utf-8")
