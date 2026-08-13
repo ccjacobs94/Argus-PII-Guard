@@ -183,6 +183,33 @@ class TestInstallerEngine:
             assert len(shortcuts) == 2
             assert mock_shortcut.call_count == 2
 
+    def test_generate_shortcuts_macos(self, tmp_path):
+        engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path)
+        target_exe = tmp_path / "Argus PII Guard.app"
+        target_exe.mkdir()
+        (tmp_path / "Desktop").mkdir()
+
+        with patch("platform.system", return_value="Darwin"), \
+             patch.object(Path, "home", return_value=tmp_path), \
+             patch.object(Path, "symlink_to", return_value=None), \
+             patch("subprocess.call", return_value=0):
+            shortcuts = engine.generate_shortcuts(target_exe)
+            assert len(shortcuts) == 1
+            assert str(tmp_path / "Desktop" / "Argus PII Guard") in shortcuts
+
+    def test_add_to_path_env_linux_system_profile(self, tmp_path):
+        engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=False)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        etc_profile = tmp_path / "etc" / "profile.d"
+        etc_profile.mkdir(parents=True)
+
+        with patch("platform.system", return_value="Linux"), \
+             patch("os.path.exists", side_effect=lambda p: str(p) == "/etc/profile.d" or str(p) == str(etc_profile)), \
+             patch("backend.installer.Path", side_effect=lambda p: tmp_path / "etc" / "profile.d" / "argus-pii-guard.sh" if p == "/etc/profile.d/argus-pii-guard.sh" else Path(p)):
+            res = engine.add_to_path_env(bin_dir)
+            assert res["success"] is True
+
     def test_add_to_path_env_unix(self, tmp_path):
         engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=True)
         bin_dir = tmp_path / "bin"
