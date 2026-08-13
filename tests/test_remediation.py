@@ -395,7 +395,7 @@ class TestDeletion:
             res = rem.trash_or_delete_file(str(test_file), permanent=False, base_dir=str(tmp_path))
             assert res["success"] is True
 
-    def test_trash_windows_mock(self, tmp_path):
+    def test_trash_windows_mock(self, tmp_path, mock_ctypes_windll):
         test_file = tmp_path / "win_trash.txt"
         test_file.write_text("win", encoding="utf-8")
         mock_shell32 = MagicMock()

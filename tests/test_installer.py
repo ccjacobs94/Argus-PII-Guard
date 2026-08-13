@@ -11,57 +11,7 @@ from pathlib import Path, PureWindowsPath
 from unittest.mock import patch, MagicMock
 
 
-@pytest.fixture
-def mock_winreg():
-    """
-    On non-Windows platforms (Linux CI / macOS), `winreg` does not exist as a
-    built-in module.  backend/installer.py uses ``import winreg`` *inside*
-    function bodies that are only reached when platform.system() == "Windows".
-    When tests force that branch via mock, the lazy import fails with
-    ModuleNotFoundError.
 
-    This fixture pre-injects a MagicMock as the `winreg` module into
-    sys.modules so the import succeeds on every OS, while keeping the mock
-    transparent to the assertions.
-    """
-    if platform.system() != "Windows":
-        fake_winreg = MagicMock()
-        # Provide the HKEY constants that installer.py references
-        fake_winreg.HKEY_CURRENT_USER = 0x80000001
-        fake_winreg.HKEY_LOCAL_MACHINE = 0x80000002
-        fake_winreg.KEY_READ = 0x20019
-        fake_winreg.KEY_WRITE = 0x20006
-        fake_winreg.REG_EXPAND_SZ = 2
-        fake_winreg.REG_SZ = 1
-        fake_winreg.REG_DWORD = 4
-        sys.modules["winreg"] = fake_winreg
-        yield fake_winreg
-        del sys.modules["winreg"]
-    else:
-        import winreg
-        yield winreg
-
-
-@pytest.fixture
-def mock_ctypes_windll():
-    """
-    On non-Windows platforms (Linux CI / macOS), `ctypes.windll` does not
-    exist.  Tests that simulate Windows paths by patching
-    ``ctypes.windll.shell32.IsUserAnAdmin`` (or ShellExecuteW) will raise
-    ``AttributeError`` because unittest.mock.patch cannot traverse a
-    non-existent intermediate attribute — even with ``create=True``.
-
-    This fixture pre-injects a MagicMock as ``ctypes.windll`` so the dotted
-    patch targets resolve correctly on every OS.
-    """
-    import ctypes
-    if not hasattr(ctypes, "windll"):
-        fake_windll = MagicMock()
-        ctypes.windll = fake_windll
-        yield fake_windll
-        del ctypes.windll
-    else:
-        yield ctypes.windll
 
 from backend.installer import (
     InstallerEngine,
