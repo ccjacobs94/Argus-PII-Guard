@@ -360,54 +360,66 @@ TEXT_EXTENSIONS = {
     ".js", ".ts", ".jsx", ".tsx", ".sh", ".ps1", ".bat", ".html", ".htm", ".xml"
 }
 
+def _get_pdf_text(path):
+    import pypdf
+    reader = pypdf.PdfReader(path)
+    parts = []
+    for page in reader.pages[:15]:
+        extracted = page.extract_text()
+        if extracted:
+            parts.append(extracted)
+    return '\n'.join(parts)[:4096]
+
+def _get_docx_text(path):
+    import docx
+    doc = docx.Document(path)
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    for table in doc.tables:
+        for row in table.rows:
+            parts.append(' | '.join(cell.text.strip() for cell in row.cells if cell.text.strip()))
+    return '\n'.join(parts)[:4096]
+
+def _get_xlsx_text(path):
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    parts = []
+    try:
+        for sheet in wb.worksheets[:5]:
+            for row in sheet.iter_rows(values_only=True, max_row=100):
+                row_vals = [str(val).strip() for val in row if val is not None and str(val).strip()]
+                if row_vals:
+                    parts.append(' | '.join(row_vals))
+    finally:
+        wb.close()
+    return '\n'.join(parts)[:4096]
+
+def _get_pptx_text(path):
+    import pptx
+    prs = pptx.Presentation(path)
+    parts = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame and shape.text.strip():
+                parts.append(shape.text.strip())
+    return '\n'.join(parts)[:4096]
+
 def get_file_text_content(file_path: Path) -> str:
     path = Path(file_path)
     ext = path.suffix.lower()
     try:
         if ext in PDF_EXTENSIONS:
-            import pypdf
-            reader = pypdf.PdfReader(path)
-            parts = []
-            for page in reader.pages[:15]:
-                extracted = page.extract_text()
-                if extracted:
-                    parts.append(extracted)
-            return "\n".join(parts)[:4096]
-        elif ext == ".docx":
-            import docx
-            doc = docx.Document(path)
-            parts = [p.text for p in doc.paragraphs if p.text.strip()]
-            for table in doc.tables:
-                for row in table.rows:
-                    parts.append(" | ".join(cell.text.strip() for cell in row.cells if cell.text.strip()))
-            return "\n".join(parts)[:4096]
-        elif ext in (".xlsx", ".xls"):
-            import openpyxl
-            wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-            parts = []
-            try:
-                for sheet in wb.worksheets[:5]:
-                    for row in sheet.iter_rows(values_only=True, max_row=100):
-                        row_vals = [str(val).strip() for val in row if val is not None and str(val).strip()]
-                        if row_vals:
-                            parts.append(" | ".join(row_vals))
-            finally:
-                wb.close()
-            return "\n".join(parts)[:4096]
-        elif ext == ".pptx":
-            import pptx
-            prs = pptx.Presentation(path)
-            parts = []
-            for slide in prs.slides:
-                for shape in slide.shapes:
-                    if shape.has_text_frame and shape.text.strip():
-                        parts.append(shape.text.strip())
-            return "\n".join(parts)[:4096]
+            return _get_pdf_text(path)
+        elif ext == '.docx':
+            return _get_docx_text(path)
+        elif ext in ('.xlsx', '.xls'):
+            return _get_xlsx_text(path)
+        elif ext == '.pptx':
+            return _get_pptx_text(path)
         else:
-            return path.read_text(errors="ignore")[:4096]
+            return path.read_text(errors='ignore')[:4096]
     except Exception as e:
-        print(f"Error extracting text from {path}: {e}")
-        return ""
+        print(f'Error extracting text from {path}: {e}')
+        return ''
 
 IMAGE_PROMPT = """
 You are a data loss prevention assistant. Inspect this image carefully.
@@ -782,6 +794,23 @@ def get_scannable_files(folders):
                         files_to_scan.append(file_path)
     return files_to_scan
 
+
+def _check_cache_status(file_cache, str_path, current_checksum, mtime, size):
+    cached_entry = file_cache.get(str_path)
+    if not cached_entry:
+        return False, None
+    cached_checksum = cached_entry.get("checksum")
+    is_unmodified = False
+    if cached_checksum:
+        if current_checksum and cached_checksum == current_checksum:
+            is_unmodified = True
+    else:
+        if cached_entry.get("mtime") == mtime:
+            is_unmodified = True
+            cached_entry["checksum"] = current_checksum
+            cached_entry["size"] = size
+    return is_unmodified, cached_entry
+
 def run_scan(folders, save_results_callback, rescan_all=False, scan_id=None):
     global _scan_id
     if scan_id is None:
@@ -831,21 +860,7 @@ def run_scan(folders, save_results_callback, rescan_all=False, scan_id=None):
         current_checksum = calculate_file_checksum(str_path)
 
         if not rescan_all and str_path in file_cache:
-            cached_entry = file_cache[str_path]
-            cached_checksum = cached_entry.get("checksum")
-            
-            # Determine if the file is unmodified
-            is_unmodified = False
-            if cached_checksum:
-                if current_checksum and cached_checksum == current_checksum:
-                    is_unmodified = True
-            else:
-                # Legacy cache migration fallback
-                if cached_entry.get("mtime") == mtime:
-                    is_unmodified = True
-                    cached_entry["checksum"] = current_checksum
-                    cached_entry["size"] = size
-
+            is_unmodified, cached_entry = _check_cache_status(file_cache, str_path, current_checksum, mtime, size)
             if is_unmodified:
                 cached_result = cached_entry.get("result")
                 if not cached_result or not cached_result.get("compromised"):
@@ -854,7 +869,6 @@ def run_scan(folders, save_results_callback, rescan_all=False, scan_id=None):
                         scan_state.progress["scanned_files"] += 1
                     return
                 else:
-                    # Add previously flagged back
                     ext = file_path.suffix.lower()
                     with state_lock:
                         file_type_label = "Image" if ext in IMAGE_EXTENSIONS else "HEIC" if ext in HEIC_EXTENSIONS else "PDF" if ext in PDF_EXTENSIONS else "Office" if ext in OFFICE_EXTENSIONS else "Text"
@@ -863,7 +877,7 @@ def run_scan(folders, save_results_callback, rescan_all=False, scan_id=None):
                             "type": file_type_label,
                             "reason": cached_result.get("reason"),
                             "selected": False,
-                            "auto_deleted": False, # Cached won't auto-delete retroactively
+                            "auto_deleted": False,
                             "needs_ai_verification": cached_result.get("needs_ai_verification", False),
                             "compromised": True,
                             "items": cached_result.get("items", []),
