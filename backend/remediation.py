@@ -817,10 +817,42 @@ def mark_as_safe_exception(
     return {"success": True, "exception": exception_entry}
 
 
+def rewrite_argusignore(exceptions: list[dict], base_dir: str = "."):
+    """Rewrites .argusignore file in base_dir using current list of exceptions."""
+    ignore_path = os.path.join(base_dir, ARGUSIGNORE_FILENAME)
+    try:
+        lines = []
+        for ex in exceptions:
+            entry_id = ex.get("id", "")
+            file_path = ex.get("file") or ex.get("target") or ""
+            match_text = ex.get("match_text", "")
+            reason = ex.get("reason") or ex.get("pattern_name") or "Whitelisted exception"
+            if file_path or match_text:
+                norm_path = file_path.replace("\\", "/") if file_path else ""
+                rule = norm_path
+                if match_text:
+                    rule = f"{norm_path} :: {match_text}" if norm_path else match_text
+                lines.append(f"# Exception {entry_id}: {reason}\n{rule}\n")
+
+        with open(ignore_path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+    except Exception as e:
+        print(f"Error updating .argusignore: {e}")
+
+
 def get_allowed_exceptions() -> list[dict]:
-    """Returns all whitelisted exceptions configured in settings."""
+    """Returns all whitelisted exceptions configured in settings with normalized properties."""
     settings = load_settings()
-    return settings.get("allowed_exceptions", [])
+    raw_exceptions = settings.get("allowed_exceptions", [])
+    normalized = []
+    for ex in raw_exceptions:
+        item = dict(ex)
+        target = item.get("target") or item.get("file") or item.get("filename") or item.get("match_text") or "Unknown"
+        ex_type = item.get("type") or ("Match Pattern" if item.get("match_text") else "File Exception")
+        item["target"] = target
+        item["type"] = ex_type
+        normalized.append(item)
+    return normalized
 
 
 def remove_allowed_exception(exception_id: str, base_dir: str = ".") -> dict:
@@ -843,6 +875,7 @@ def remove_allowed_exception(exception_id: str, base_dir: str = ".") -> dict:
 
     settings["allowed_exceptions"] = new_exceptions
     save_settings(settings)
+    rewrite_argusignore(new_exceptions, base_dir=base_dir)
 
     # Clear cache entry for the file to re-scan
     file_path = removed_entry.get("file")

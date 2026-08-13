@@ -1638,6 +1638,17 @@ function initApp() {
                 if (redactionMaskSelect) redactionMaskSelect.value = settings.redaction_mask_pattern || "redacted";
                 if (deletionModeSelect) deletionModeSelect.value = settings.deletion_mode || "trash";
 
+                function formatAddedDate(addedAt) {
+                    if (!addedAt) return 'N/A';
+                    if (typeof addedAt === 'number') {
+                        const ms = addedAt < 1e11 ? addedAt * 1000 : addedAt;
+                        const d = new Date(ms);
+                        return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+                    }
+                    const d = new Date(addedAt);
+                    return isNaN(d.getTime()) ? String(addedAt) : d.toLocaleDateString();
+                }
+
                 // Load Allowed Exceptions
                 async function loadAllowedExceptions() {
                     const listEl = document.getElementById('exceptions-list');
@@ -1648,21 +1659,26 @@ function initApp() {
                             listEl.innerHTML = '<div class="empty-exceptions-state"><i class="ph ph-shield"></i><p>No allowed exceptions configured yet.</p></div>';
                             return;
                         }
-                        listEl.innerHTML = exceptions.map(ex => `
-                            <div class="exception-item" id="exception-${ex.id}">
-                                <div class="exception-details">
-                                    <span class="exception-path" title="${escapeHtml(ex.target)}">${escapeHtml(ex.target)}</span>
-                                    <div class="exception-meta">
-                                        <span class="chip" style="font-size:10.5px; padding:1px 6px;">${escapeHtml(ex.type)}</span>
-                                        ${ex.pattern_name ? `<span style="font-weight:600; color:var(--argus-teal);">${escapeHtml(ex.pattern_name)}</span>` : ''}
-                                        <span>Added: ${new Date(ex.added_at * 1000).toLocaleDateString()}</span>
+                        listEl.innerHTML = exceptions.map(ex => {
+                            const targetStr = ex.target || ex.file || ex.filename || ex.match_text || 'Unknown target';
+                            const typeStr = ex.type || (ex.match_text ? 'Match Pattern' : 'File Exception');
+                            const dateStr = formatAddedDate(ex.added_at);
+                            return `
+                                <div class="exception-item" id="exception-${ex.id}">
+                                    <div class="exception-details">
+                                        <span class="exception-path" title="${escapeHtml(targetStr)}">${escapeHtml(targetStr)}</span>
+                                        <div class="exception-meta">
+                                            <span class="chip" style="font-size:10.5px; padding:1px 6px;">${escapeHtml(typeStr)}</span>
+                                            ${ex.pattern_name ? `<span style="font-weight:600; color:var(--argus-teal);">${escapeHtml(ex.pattern_name)}</span>` : ''}
+                                            <span>Added: ${dateStr}</span>
+                                        </div>
                                     </div>
+                                    <button class="btn-icon delete-exception-btn" data-id="${ex.id}" title="Remove rule and resume scanning this target">
+                                        <i class="ph ph-trash" style="color:var(--danger)"></i>
+                                    </button>
                                 </div>
-                                <button class="btn-icon delete-exception-btn" data-id="${ex.id}" title="Remove rule and resume scanning this target">
-                                    <i class="ph ph-trash" style="color:var(--danger)"></i>
-                                </button>
-                            </div>
-                        `).join('');
+                            `;
+                        }).join('');
 
                         listEl.querySelectorAll('.delete-exception-btn').forEach(btn => {
                             btn.addEventListener('click', async (e) => {
@@ -2076,34 +2092,35 @@ function initApp() {
                 const saveSettingsBtn = document.getElementById('save-settings-btn');
                 if (saveSettingsBtn) {
                     saveSettingsBtn.addEventListener('click', async () => {
-                        settings.ollama_address = addressInput ? addressInput.value.trim() : "http://127.0.0.1:11434";
-                        settings.auto_delete = autoDeleteToggle ? autoDeleteToggle.checked : false;
-                        settings.schedule = {
+                        const currentSettings = pywebview.api.get_settings ? await pywebview.api.get_settings() : settings;
+                        currentSettings.ollama_address = addressInput ? addressInput.value.trim() : "http://127.0.0.1:11434";
+                        currentSettings.auto_delete = autoDeleteToggle ? autoDeleteToggle.checked : false;
+                        currentSettings.schedule = {
                             enabled: toggle ? toggle.checked : false,
                             time: timeInput ? timeInput.value : "02:00"
                         };
                         
-                        settings.concurrency = concurrencySelect ? concurrencySelect.value : "auto";
-                        settings.image_optimization = imageOptSelect ? imageOptSelect.value : "medium";
-                        settings.text_scan_mode = textModeSelect ? textModeSelect.value : "regex_llm";
+                        currentSettings.concurrency = concurrencySelect ? concurrencySelect.value : "auto";
+                        currentSettings.image_optimization = imageOptSelect ? imageOptSelect.value : "medium";
+                        currentSettings.text_scan_mode = textModeSelect ? textModeSelect.value : "regex_llm";
 
-                        settings.redaction_mask_pattern = redactionMaskSelect ? redactionMaskSelect.value : "redacted";
-                        settings.deletion_mode = deletionModeSelect ? deletionModeSelect.value : "trash";
+                        currentSettings.redaction_mask_pattern = redactionMaskSelect ? redactionMaskSelect.value : "redacted";
+                        currentSettings.deletion_mode = deletionModeSelect ? deletionModeSelect.value : "trash";
 
                         // Model provider settings
                         const selectedProvider = document.querySelector('input[name="model-provider"]:checked');
-                        settings.model_provider = selectedProvider ? selectedProvider.value : "ollama";
+                        currentSettings.model_provider = selectedProvider ? selectedProvider.value : "ollama";
 
                         // Ollama model names
-                        settings.vision_model_name = ollamaVisionModel ? ollamaVisionModel.value.trim() : "gemma4:12b";
-                        settings.text_model_name = ollamaTextModel ? ollamaTextModel.value.trim() : "gemma4:12b";
+                        currentSettings.vision_model_name = ollamaVisionModel ? ollamaVisionModel.value.trim() : "gemma4:12b";
+                        currentSettings.text_model_name = ollamaTextModel ? ollamaTextModel.value.trim() : "gemma4:12b";
 
                         // Models folder (already saved on browse, but capture current state)
                         if (modelsFolderPath && modelsFolderPath.textContent !== 'No folder selected') {
-                            settings.models_folder = modelsFolderPath.textContent;
+                            currentSettings.models_folder = modelsFolderPath.textContent;
                         }
                         
-                        await pywebview.api.save_settings(settings);
+                        await pywebview.api.save_settings(currentSettings);
                         alert('Argus Configuration saved successfully.');
                     });
                 }
