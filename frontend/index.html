@@ -23,7 +23,10 @@
                     <i class="ph ph-squares-four"></i> Dashboard
                 </a>
                 <a href="#" class="nav-item" data-target="results" id="nav-results">
-                    <i class="ph ph-shield-warning"></i> Detections & Reports
+                    <i class="ph ph-shield-warning"></i>
+                    <span>Detections & Reports</span>
+                    <!-- Requirement 1: Counter badge shown only if pending/PII files exist -->
+                    <span class="nav-badge hidden" id="nav-results-counter">0</span>
                 </a>
                 <a href="#" class="nav-item" data-target="settings" id="nav-settings">
                     <i class="ph ph-gear"></i> Settings
@@ -73,7 +76,7 @@
                         <div class="card-header">
                             <h3><i class="ph ph-scan" style="color: var(--argus-teal);"></i> Sentinel Inspection</h3>
                         </div>
-                        <p>Initiate deep vision & text analysis of target directories using local AI.</p>
+                        <p id="scan-card-description">Initiate deep vision & text analysis of target directories using local AI.</p>
                         
                         <div class="scan-mode-options" id="scan-mode-options" style="margin-bottom: 18px; display: flex; flex-direction: column; gap: 8px;">
                             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13.5px;">
@@ -120,6 +123,26 @@
                             <button id="stop-scan-btn" class="btn btn-danger btn-small" style="width: 100%;">
                                 <i class="ph ph-stop"></i> Abort Scan
                             </button>
+                        </div>
+
+                        <!-- Requirement 2: Scan Summary Overview in Section 2 with verbatim list items and Okay reset button -->
+                        <div id="scan-summary-container" class="scan-summary-container hidden">
+                            <div class="scan-summary-header">
+                                <i class="ph-fill ph-check-circle" style="color: var(--argus-teal); font-size: 22px;"></i>
+                                <span>Scan Complete</span>
+                            </div>
+                            <ul class="scan-summary-list">
+                                <li>the number of files that were scanned: <strong id="summary-scanned-count">0</strong></li>
+                                <li>the number of problematic files that were tagged: <strong id="summary-flagged-count">0</strong></li>
+                            </ul>
+                            <div class="scan-summary-actions">
+                                <button id="scan-summary-view-btn" class="btn btn-secondary btn-large">
+                                    <i class="ph-bold ph-shield-warning"></i> View Flagged Files
+                                </button>
+                                <button id="scan-summary-ok-btn" class="btn btn-primary btn-large">
+                                    Okay
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
