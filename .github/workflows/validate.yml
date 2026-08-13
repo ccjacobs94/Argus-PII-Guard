@@ -26,7 +26,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.venv
-          key: ${{ runner.os }}-venv-3.11-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-venv-3.11-v2-${{ hashFiles('**/requirements.txt') }}
 
 
       - name: Install Dependencies
@@ -48,8 +48,12 @@ jobs:
       - name: "Step 2: Full Test Suite Execution"
         id: run-tests
         run: |
-          set -o pipefail
           pytest tests/ -v -ra --tb=short 2>&1 | tee pytest_output.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            echo "::error title=Pytest Suite Failed::$(tail -n 30 pytest_output.log | tr '\n' ' ')"
+            exit $status
+          fi
 
       - name: Publish Test Summary
         if: always()
@@ -57,15 +61,19 @@ jobs:
           if [ -f pytest_output.log ]; then
             echo "### Pytest Execution Summary" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            tail -n 100 pytest_output.log >> $GITHUB_STEP_SUMMARY
+            cat pytest_output.log >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: "Step 3: Coverage Gate Verification"
         id: run-coverage
         run: |
-          set -o pipefail
           pytest --cov=backend --cov-report=term-missing --cov-fail-under=85 2>&1 | tee coverage_output.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            echo "::error title=Coverage Gate Failed::$(tail -n 25 coverage_output.log | tr '\n' ' ')"
+            exit $status
+          fi
 
 
       - name: Publish Coverage Summary

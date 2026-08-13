@@ -395,6 +395,15 @@ class TestDeletion:
             res = rem.trash_or_delete_file(str(test_file), permanent=False, base_dir=str(tmp_path))
             assert res["success"] is True
 
+    def test_trash_windows_mock(self, tmp_path, mock_ctypes_windll):
+        test_file = tmp_path / "win_trash.txt"
+        test_file.write_text("win", encoding="utf-8")
+        mock_shell32 = MagicMock()
+        mock_shell32.SHFileOperationW.return_value = 0
+        with patch("sys.platform", "win32"), patch("ctypes.windll.shell32", mock_shell32, create=True):
+            res = rem.trash_or_delete_file(str(test_file), permanent=False, base_dir=str(tmp_path))
+            assert res["success"] is True
+
 
 class TestAllowedExceptions:
     def test_mark_as_safe_and_ignore(self, tmp_path):

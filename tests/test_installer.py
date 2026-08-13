@@ -5,9 +5,13 @@ Unit and Integration Tests for Cross-Platform Native Installer & Desktop Integra
 import os
 import sys
 import json
+import platform
 import pytest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch, MagicMock
+
+
+
 
 from backend.installer import (
     InstallerEngine,
@@ -27,10 +31,10 @@ class TestDefaultInstallPaths:
         with patch("platform.system", return_value="Windows"), \
              patch.dict(os.environ, {"ProgramFiles": r"C:\Program Files", "LOCALAPPDATA": r"C:\Users\test\AppData\Local"}):
             path_sys = get_default_install_path(user_scope=False)
-            assert str(path_sys) == r"C:\Program Files\Argus PII Guard"
+            assert PureWindowsPath(path_sys).as_posix() == "C:/Program Files/Argus PII Guard"
 
             path_user = get_default_install_path(user_scope=True)
-            assert str(path_user) == r"C:\Users\test\AppData\Local\Programs\Argus PII Guard"
+            assert PureWindowsPath(path_user).as_posix() == "C:/Users/test/AppData/Local/Programs/Argus PII Guard"
 
     def test_macos_default_install_paths(self):
         with patch("platform.system", return_value="Darwin"), \
@@ -58,7 +62,7 @@ class TestPrivilegeChecks:
         assert res["sufficient"] is True
         assert res["has_write_access"] is True
 
-    def test_check_privileges_unwritable_dir(self, tmp_path):
+    def test_check_privileges_unwritable_dir(self, tmp_path, mock_ctypes_windll):
         target = tmp_path / "read_only_target"
         with patch("os.access", return_value=False), \
              patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=0, create=True), \
@@ -67,7 +71,7 @@ class TestPrivilegeChecks:
             assert res["sufficient"] is False
             assert "Permission denied" in res["message"]
 
-    def test_elevate_privileges_windows(self):
+    def test_elevate_privileges_windows(self, mock_ctypes_windll):
         with patch("platform.system", return_value="Windows"), \
              patch("ctypes.windll.shell32.IsUserAnAdmin", return_value=1, create=True):
             assert elevate_privileges() is True
@@ -129,6 +133,33 @@ class TestInstallerEngine:
             assert len(shortcuts) == 2
             assert mock_shortcut.call_count == 2
 
+    def test_generate_shortcuts_macos(self, tmp_path):
+        engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path)
+        target_exe = tmp_path / "Argus PII Guard.app"
+        target_exe.mkdir()
+        (tmp_path / "Desktop").mkdir()
+
+        with patch("platform.system", return_value="Darwin"), \
+             patch.object(Path, "home", return_value=tmp_path), \
+             patch.object(Path, "symlink_to", return_value=None), \
+             patch("subprocess.call", return_value=0):
+            shortcuts = engine.generate_shortcuts(target_exe)
+            assert len(shortcuts) == 1
+            assert str(tmp_path / "Desktop" / "Argus PII Guard") in shortcuts
+
+    def test_add_to_path_env_linux_system_profile(self, tmp_path):
+        engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=False)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        etc_profile = tmp_path / "etc" / "profile.d"
+        etc_profile.mkdir(parents=True)
+
+        with patch("platform.system", return_value="Linux"), \
+             patch("os.path.exists", side_effect=lambda p: str(p) == "/etc/profile.d" or str(p) == str(etc_profile)), \
+             patch("backend.installer.Path", side_effect=lambda p: tmp_path / "etc" / "profile.d" / "argus-pii-guard.sh" if p == "/etc/profile.d/argus-pii-guard.sh" else Path(p)):
+            res = engine.add_to_path_env(bin_dir)
+            assert res["success"] is True
+
     def test_add_to_path_env_unix(self, tmp_path):
         engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=True)
         bin_dir = tmp_path / "bin"
@@ -144,16 +175,16 @@ class TestInstallerEngine:
             assert str(bashrc) in res["method"]
             assert str(bin_dir) in bashrc.read_text(encoding="utf-8")
 
-    def test_add_to_path_env_windows(self, tmp_path):
+    def test_add_to_path_env_windows(self, tmp_path, mock_winreg):
         engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=True)
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
 
         mock_key = MagicMock()
         with patch("platform.system", return_value="Windows"), \
-             patch("winreg.OpenKey", return_value=mock_key), \
-             patch("winreg.QueryValueEx", return_value=("C:\\Path", 1)), \
-             patch("winreg.SetValueEx") as mock_set:
+             patch("winreg.OpenKey", return_value=mock_key, create=True), \
+             patch("winreg.QueryValueEx", return_value=("C:\\Path", 1), create=True), \
+             patch("winreg.SetValueEx", create=True) as mock_set:
             res = engine.add_to_path_env(bin_dir)
             assert res["success"] is True
             mock_set.assert_called_once()
@@ -225,7 +256,7 @@ class TestInstallerEngine:
             assert res["success"] is False
             assert res["error"] == "permission_denied"
 
-    def test_uninstaller_windows_registry(self, tmp_path):
+    def test_uninstaller_windows_registry(self, tmp_path, mock_winreg):
         target = tmp_path / "uninst_target"
         target.mkdir()
         manifest = target / "install_manifest.json"
@@ -233,11 +264,24 @@ class TestInstallerEngine:
 
         uninstaller = UninstallerEngine(install_dir=target)
         with patch("platform.system", return_value="Windows"), \
-             patch("winreg.DeleteKey") as mock_del:
+             patch("winreg.DeleteKey", create=True) as mock_del:
             res = uninstaller.uninstall()
             assert res["success"] is True
             assert res["removed_registry"] is True
             mock_del.assert_called_once()
+
+    def test_register_windows_uninstall(self, tmp_path, mock_winreg):
+        engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=True)
+        target_exe = tmp_path / "Argus PII Guard.exe"
+        target_exe.write_text("binary", encoding="utf-8")
+
+        mock_key = MagicMock()
+        with patch("platform.system", return_value="Windows"), \
+             patch("winreg.CreateKey", return_value=mock_key, create=True), \
+             patch("winreg.SetValueEx", create=True) as mock_set:
+            res = engine.register_windows_uninstall(tmp_path, target_exe)
+            assert "Software" in res
+            assert mock_set.called
 
 
 class TestApiInstallerEndpoints:

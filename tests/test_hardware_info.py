@@ -121,6 +121,22 @@ class TestRAMInfo:
         assert "ram_total_gb" in info
         assert "ram_available_gb" in info
         assert info["ram_total_gb"] > 0
+
+    @patch("sys.platform", "linux")
+    def test_ram_info_linux(self):
+        fake_meminfo = "MemTotal:       16384000 kB\nMemAvailable:   12288000 kB\n"
+        with patch("builtins.open", mock_open(read_data=fake_meminfo)):
+            info = get_ram_info()
+            assert info["ram_total_gb"] > 0
+            assert info["ram_available_gb"] > 0
+
+    @patch("sys.platform", "darwin")
+    def test_ram_info_darwin(self):
+        fake_vmstat = "Mach Virtual Memory Statistics:\nPages free:                             100000.\nPages inactive:                         200000.\n"
+        with patch("subprocess.check_output", return_value=fake_vmstat):
+            info = get_ram_info()
+            assert info["ram_total_gb"] > 0
+            assert info["ram_available_gb"] > 0
         assert info["ram_available_gb"] > 0
 
     @patch("sys.platform", "linux")
