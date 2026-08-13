@@ -61,7 +61,7 @@
                     <div class="card glass-panel" id="target-folders-card">
                         <div class="card-header">
                             <h3><i class="ph ph-folder-open" style="color: var(--argus-periwinkle);"></i> Target Directories</h3>
-                            <button id="add-folder-btn" class="btn btn-icon" title="Add Folder"><i class="ph ph-plus-circle" style="font-size: 22px;"></i></button>
+                            <button id="add-folder-btn" class="btn btn-icon" title="Add Folder" aria-label="Add Folder"><i class="ph ph-plus-circle" style="font-size: 22px;"></i></button>
                         </div>
                         <ul id="folder-list" class="folder-list">
                             <!-- Folders populated via JS -->
@@ -294,7 +294,7 @@
                         <div class="local-models-list-container">
                             <div class="local-models-header">
                                 <h4><i class="ph-fill ph-files" style="color: var(--argus-periwinkle);"></i> Discovered Models</h4>
-                                <button id="refresh-models-btn" class="btn btn-icon btn-small" title="Re-scan folder">
+                                <button id="refresh-models-btn" class="btn btn-icon btn-small" title="Re-scan folder" aria-label="Re-scan local models folder">
                                     <i class="ph ph-arrows-clockwise"></i>
                                 </button>
                             </div>
@@ -362,7 +362,7 @@
                     <div class="recommended-models-section" id="recommended-models-section">
                         <div class="recommended-models-header">
                             <h4><i class="ph-fill ph-star" style="color: var(--argus-teal);"></i> Recommended Models for Your Hardware</h4>
-                            <button id="refresh-recommendations-btn" class="btn btn-icon btn-small" title="Refresh recommendations">
+                            <button id="refresh-recommendations-btn" class="btn btn-icon btn-small" title="Refresh recommendations" aria-label="Refresh recommended models">
                                 <i class="ph ph-arrows-clockwise"></i>
                             </button>
                         </div>
@@ -485,7 +485,7 @@
                                 <h4><i class="ph-fill ph-shield-check" style="color: var(--argus-teal);"></i> Whitelisted Files &amp; Patterns</h4>
                                 <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Files and matches configured to be skipped in future sentinel scans.</p>
                             </div>
-                            <button id="refresh-exceptions-btn" class="btn btn-icon btn-small" title="Refresh exceptions list">
+                            <button id="refresh-exceptions-btn" class="btn btn-icon btn-small" title="Refresh exceptions list" aria-label="Refresh exceptions list">
                                 <i class="ph ph-arrows-clockwise"></i>
                             </button>
                         </div>
@@ -526,7 +526,7 @@
                         <i class="ph-bold ph-eraser"></i> Redact All in File
                     </button>
                 </div>
-                <span class="close-btn" title="Close Preview (Esc)">&times;</span>
+                <span class="close-btn" title="Close Preview (Esc)" aria-label="Close Preview" role="button" tabindex="0">&times;</span>
             </div>
 
             <!-- Permission / Tamper Alerts Container -->
@@ -575,7 +575,7 @@
                 </div>
                 <h3 id="tour-title" class="tour-title">Welcome to Argus</h3>
             </div>
-            <button id="tour-close-btn" class="tour-close-btn" title="Exit Tour (Esc)">&times;</button>
+            <button id="tour-close-btn" class="tour-close-btn" title="Exit Tour (Esc)" aria-label="Exit Tour">&times;</button>
         </div>
         
         <div id="tour-body" class="tour-body">
