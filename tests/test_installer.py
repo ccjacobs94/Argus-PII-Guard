@@ -270,6 +270,19 @@ class TestInstallerEngine:
             assert res["removed_registry"] is True
             mock_del.assert_called_once()
 
+    def test_register_windows_uninstall(self, tmp_path, mock_winreg):
+        engine = InstallerEngine(source_dir=tmp_path, target_dir=tmp_path, user_scope=True)
+        target_exe = tmp_path / "Argus PII Guard.exe"
+        target_exe.write_text("binary", encoding="utf-8")
+
+        mock_key = MagicMock()
+        with patch("platform.system", return_value="Windows"), \
+             patch("winreg.CreateKey", return_value=mock_key, create=True), \
+             patch("winreg.SetValueEx", create=True) as mock_set:
+            res = engine.register_windows_uninstall(tmp_path, target_exe)
+            assert "Software" in res
+            assert mock_set.called
+
 
 class TestApiInstallerEndpoints:
     def test_api_installation_endpoints(self, tmp_path):
