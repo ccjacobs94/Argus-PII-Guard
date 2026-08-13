@@ -81,10 +81,10 @@ class TestDefaultInstallPaths:
         with patch("platform.system", return_value="Windows"), \
              patch.dict(os.environ, {"ProgramFiles": r"C:\Program Files", "LOCALAPPDATA": r"C:\Users\test\AppData\Local"}):
             path_sys = get_default_install_path(user_scope=False)
-            assert PureWindowsPath(path_sys) == PureWindowsPath(r"C:\Program Files\Argus PII Guard")
+            assert PureWindowsPath(path_sys).as_posix() == "C:/Program Files/Argus PII Guard"
 
             path_user = get_default_install_path(user_scope=True)
-            assert PureWindowsPath(path_user) == PureWindowsPath(r"C:\Users\test\AppData\Local\Programs\Argus PII Guard")
+            assert PureWindowsPath(path_user).as_posix() == "C:/Users/test/AppData/Local/Programs/Argus PII Guard"
 
     def test_macos_default_install_paths(self):
         with patch("platform.system", return_value="Darwin"), \
