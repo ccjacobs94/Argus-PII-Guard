@@ -21,6 +21,7 @@ let currentPreviewData = null;
 let currentResultsTab = 'active'; // 'active' or 'resolved'
 let resultsSearchQuery = '';
 let activeFindingIndex = 0;
+let lastScanStats = { scanned_files: 0, flagged_count: 0 };
 
 function switchView(targetId) {
     document.querySelectorAll('.nav-item').forEach(n => {
@@ -88,6 +89,67 @@ function renderFolders(folders) {
     });
 }
 
+// ============================================================================
+// SECTION 1: Counter Badge Management
+// ============================================================================
+
+/**
+ * Requirement 1: In the area of the image labeled 1, display a counter only if
+ * there are pending files that need review or have been identified as containing PII.
+ */
+function updateDetectionsCounter(results) {
+    const counterEl = document.getElementById('nav-results-counter');
+    if (!counterEl) return;
+
+    const list = Array.isArray(results) ? results : (currentResults || []);
+    // Count pending files needing review or identified as containing PII
+    const pendingCount = list.filter(r => !r.auto_deleted && r.compromised !== false).length;
+
+    if (pendingCount > 0) {
+        counterEl.textContent = pendingCount;
+        counterEl.classList.remove('hidden');
+    } else {
+        counterEl.textContent = '0';
+        counterEl.classList.add('hidden');
+    }
+}
+
+// ============================================================================
+// SECTION 2: Reset Main Screen Handler
+// ============================================================================
+
+/**
+ * Requirement 2: When the user clicks "Okay", the main screen must reset.
+ */
+function resetMainScreen() {
+    const summaryContainer = document.getElementById('scan-summary-container');
+    const progressContainer = document.getElementById('scan-progress-container');
+    const startScanBtn = document.getElementById('start-scan-btn');
+    const modeOptions = document.getElementById('scan-mode-options');
+    const sidebarScanStatus = document.getElementById('sidebar-scan-status');
+    const fillEl = document.getElementById('scan-progress-fill');
+    const scannedCountEl = document.getElementById('scan-scanned-count');
+    const skippedCountEl = document.getElementById('scan-skipped-count');
+    const flaggedCountEl = document.getElementById('scan-flagged-count');
+    const currentFileEl = document.getElementById('scan-current-file');
+
+    if (summaryContainer) summaryContainer.classList.add('hidden');
+    if (progressContainer) progressContainer.classList.add('hidden');
+    if (sidebarScanStatus) sidebarScanStatus.classList.add('hidden');
+    if (modeOptions) modeOptions.classList.remove('hidden');
+    if (startScanBtn) {
+        startScanBtn.classList.remove('hidden');
+        startScanBtn.disabled = false;
+        startScanBtn.innerHTML = '<i class="ph-fill ph-play"></i> SCAN NOW';
+    }
+
+    if (fillEl) fillEl.style.width = '0%';
+    if (scannedCountEl) scannedCountEl.innerText = '0 / 0';
+    if (skippedCountEl) skippedCountEl.innerText = '(0 skipped)';
+    if (flaggedCountEl) flaggedCountEl.innerText = '0 flagged';
+    if (currentFileEl) currentFileEl.innerText = 'Scanning...';
+}
+
 function startProgressPolling() {
     if (scanInterval) clearInterval(scanInterval);
     scanInterval = setInterval(async () => {
@@ -98,12 +160,15 @@ function startProgressPolling() {
         }
 
         if (!data.is_scanning) {
-            stopProgressPolling();
-            loadResults();
+            stopProgressPolling(true);
+            await loadResults();
             return;
         }
 
-        const p = data.progress;
+        const p = data.progress || {};
+        lastScanStats.scanned_files = p.scanned_files || 0;
+        lastScanStats.flagged_count = p.flagged_count || 0;
+
         const percent = p.total_files > 0 ? (p.scanned_files / p.total_files) * 100 : 0;
         
         document.getElementById('scan-progress-fill').style.width = `${percent}%`;
@@ -124,11 +189,29 @@ function startProgressPolling() {
     }, 800);
 }
 
-function stopProgressPolling() {
+function stopProgressPolling(completedSuccessfully = false) {
     if (scanInterval) clearInterval(scanInterval);
+    
     document.getElementById('scan-progress-container').classList.add('hidden');
     document.getElementById('sidebar-scan-status').classList.add('hidden');
-    document.getElementById('start-scan-btn').classList.remove('hidden');
+
+    if (completedSuccessfully) {
+        // Requirement 2: Show Scan Summary Overview in Section 2
+        const summaryScanned = document.getElementById('summary-scanned-count');
+        const summaryFlagged = document.getElementById('summary-flagged-count');
+        if (summaryScanned) summaryScanned.innerText = lastScanStats.scanned_files;
+        if (summaryFlagged) summaryFlagged.innerText = lastScanStats.flagged_count;
+
+        const summaryContainer = document.getElementById('scan-summary-container');
+        if (summaryContainer) summaryContainer.classList.remove('hidden');
+
+        // Hide start scan btn & options while summary is displayed
+        document.getElementById('start-scan-btn').classList.add('hidden');
+        const modeOptions = document.getElementById('scan-mode-options');
+        if (modeOptions) modeOptions.classList.add('hidden');
+    } else {
+        resetMainScreen();
+    }
 }
 
 async function loadResults() {
@@ -141,6 +224,9 @@ async function loadResults() {
 function renderResultsUI(results) {
     const list = document.getElementById('results-list');
     if (!list) return;
+
+    // Requirement 1: Update Detections & Reports counter badge in sidebar
+    updateDetectionsCounter(results);
 
     // Filter active vs resolved
     const activeResults = results.filter(r => !r.auto_deleted && r.compromised !== false);
@@ -1511,14 +1597,8 @@ class ArgusTourEngine {
             modal.classList.add('hidden');
         }
 
-        // Reset scan progress container
-        const progressContainer = document.getElementById('scan-progress-container');
-        const startScanBtn = document.getElementById('start-scan-btn');
-        const sidebarScanStatus = document.getElementById('sidebar-scan-status');
-
-        if (progressContainer) progressContainer.classList.add('hidden');
-        if (startScanBtn) startScanBtn.classList.remove('hidden');
-        if (sidebarScanStatus) sidebarScanStatus.classList.add('hidden');
+        // Reset scan progress & summary containers
+        resetMainScreen();
 
         // Restore active view & real results
         switchView(this.savedActiveView || 'dashboard');
@@ -2152,11 +2232,17 @@ function initApp() {
                     const isSuccess = (res === true) || (res && res.success === true);
                     
                     if (isSuccess) {
+                        const summaryContainer = document.getElementById('scan-summary-container');
+                        if (summaryContainer) summaryContainer.classList.add('hidden');
+                        const modeOptions = document.getElementById('scan-mode-options');
+                        if (modeOptions) modeOptions.classList.add('hidden');
+
                         const prog = document.getElementById('scan-progress-container');
                         if (prog) prog.classList.remove('hidden');
                         const scanStatus = document.getElementById('sidebar-scan-status');
                         if (scanStatus) scanStatus.classList.remove('hidden');
                         startScanBtn.classList.add('hidden');
+                        lastScanStats = { scanned_files: 0, flagged_count: 0 };
                         startProgressPolling();
                     } else {
                         const msg = (res && res.message) ? res.message : 'Please add at least one directory to inspect first.';
@@ -2166,6 +2252,14 @@ function initApp() {
                     startScanBtn.disabled = false;
                     startScanBtn.innerHTML = origHtml;
                 }
+            });
+        }
+
+        // Requirement 2: Okay button resets main screen
+        const scanSummaryOkBtn = document.getElementById('scan-summary-ok-btn');
+        if (scanSummaryOkBtn) {
+            scanSummaryOkBtn.addEventListener('click', () => {
+                resetMainScreen();
             });
         }
 
@@ -2440,6 +2534,11 @@ function initApp() {
                 }
             }
         });
+
+        // Initial load of results to update Section 1 counter badge
+        if (window.pywebview?.api?.get_results) {
+            loadResults();
+        }
 
     } catch (err) {
         console.error("Error initializing Argus application:", err);
