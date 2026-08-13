@@ -21,7 +21,7 @@ import ctypes
 from pathlib import Path
 from datetime import datetime, timezone
 
-VERSION = "1.0.5"
+VERSION = "1.1.0"
 APP_NAME = "Argus PII Guard"
 APP_ID = "argus.piiguard.sentinel.1.0"
 PUBLISHER = "Argus Security Team"

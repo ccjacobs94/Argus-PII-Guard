@@ -1,6 +1,6 @@
 # Argus PII Guard 🛡️
 
-[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.5)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.1.0)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Coverage](https://img.shields.io/badge/coverage-85%25%2B-brightgreen.svg)](VALIDATION_PIPELINE.md)
@@ -35,7 +35,7 @@
 
 ### Option 1: Running Cross-Platform Native Installer (Windows, macOS, Linux)
 
-After downloading the platform build archive (`Argus_PII_Guard_v1.0.5_windows.zip` or `Argus_PII_Guard_v1.0.5_linux.tar.gz`) from [Releases](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.0.5):
+After downloading the platform build archive (`Argus_PII_Guard_v1.1.0_windows.zip` or `Argus_PII_Guard_v1.1.0_linux.tar.gz`) from [Releases](https://github.com/ccjacobs94/Argus-PII-Guard/releases/tag/v1.1.0):
 
 1. **Extract the Archive**:
    Unpack the release ZIP or tarball to your preferred temporary location.
@@ -46,7 +46,7 @@ After downloading the platform build archive (`Argus_PII_Guard_v1.0.5_windows.zi
      ```cmd
      python installer\native_installer.py --install
      ```
-     *(Alternatively, double-click `Argus_PII_Guard_v1.0.5_Setup.exe` if using the Inno Setup wizard).*
+     *(Alternatively, double-click `Argus_PII_Guard_v1.1.0_Setup.exe` if using the Inno Setup wizard).*
 
    - **Linux / macOS**:
      Open a terminal inside the extracted directory and run the launcher script:

@@ -23,7 +23,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 DIST_DIR = BASE_DIR / "dist"
 INSTALLERS_DIR = DIST_DIR / "installers"
-VERSION = "1.0.5"
+VERSION = "1.1.0"
 
 
 def print_step(title):

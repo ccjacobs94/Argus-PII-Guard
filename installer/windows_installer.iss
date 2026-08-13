@@ -1,8 +1,8 @@
-; Inno Setup Compiler Script for Argus PII Guard v1.0.5
-; Builds a native Windows setup installer: Argus_PII_Guard_v1.0.5_Setup.exe
+; Inno Setup Compiler Script for Argus PII Guard v1.1.0
+; Builds a native Windows setup installer: Argus_PII_Guard_v1.1.0_Setup.exe
 
 #define MyAppName "Argus PII Guard"
-#define MyAppVersion "1.0.5"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Argus Security Team"
 #define MyAppURL "https://github.com/argus-pii/argus-pii-guard"
 #define MyAppExeName "Argus PII Guard.exe"
@@ -21,7 +21,7 @@ DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 LicenseFile=..\LICENSE
 OutputDir=..\dist\installers
-OutputBaseFilename=Argus_PII_Guard_v1.0.5_Setup
+OutputBaseFilename=Argus_PII_Guard_v1.1.0_Setup
 SetupIconFile=..\frontend\assets\argus-icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
