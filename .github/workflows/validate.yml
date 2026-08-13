@@ -68,8 +68,12 @@ jobs:
       - name: "Step 3: Coverage Gate Verification"
         id: run-coverage
         run: |
-          set -o pipefail
           pytest --cov=backend --cov-report=term-missing --cov-fail-under=85 2>&1 | tee coverage_output.log
+          status=${PIPESTATUS[0]}
+          if [ $status -ne 0 ]; then
+            echo "::error title=Coverage Gate Failed::$(tail -n 25 coverage_output.log | tr '\n' ' ')"
+            exit $status
+          fi
 
 
       - name: Publish Coverage Summary
