@@ -7,7 +7,7 @@ import sys
 import json
 import platform
 import pytest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch, MagicMock
 
 
@@ -81,10 +81,10 @@ class TestDefaultInstallPaths:
         with patch("platform.system", return_value="Windows"), \
              patch.dict(os.environ, {"ProgramFiles": r"C:\Program Files", "LOCALAPPDATA": r"C:\Users\test\AppData\Local"}):
             path_sys = get_default_install_path(user_scope=False)
-            assert Path(path_sys) == Path(r"C:\Program Files\Argus PII Guard")
+            assert PureWindowsPath(path_sys) == PureWindowsPath(r"C:\Program Files\Argus PII Guard")
 
             path_user = get_default_install_path(user_scope=True)
-            assert Path(path_user) == Path(r"C:\Users\test\AppData\Local\Programs\Argus PII Guard")
+            assert PureWindowsPath(path_user) == PureWindowsPath(r"C:\Users\test\AppData\Local\Programs\Argus PII Guard")
 
     def test_macos_default_install_paths(self):
         with patch("platform.system", return_value="Darwin"), \
