@@ -2263,6 +2263,15 @@ function initApp() {
             });
         }
 
+        // View Flagged Files button -> switches view to 'results' (Detections & Reports)
+        const scanSummaryViewBtn = document.getElementById('scan-summary-view-btn');
+        if (scanSummaryViewBtn) {
+            scanSummaryViewBtn.addEventListener('click', () => {
+                resetMainScreen();
+                switchView('results');
+            });
+        }
+
         const stopScanBtn = document.getElementById('stop-scan-btn');
         if (stopScanBtn) {
             stopScanBtn.addEventListener('click', async () => {

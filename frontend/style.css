@@ -718,6 +718,17 @@ header p {
     margin-left: 2px;
 }
 
+.scan-summary-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 18px;
+}
+
+.scan-summary-actions .btn {
+    flex: 1;
+    margin-top: 0;
+}
+
 /* Results Table */
 .results-header {
     display: flex;
