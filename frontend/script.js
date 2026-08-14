@@ -73,7 +73,7 @@ function renderFolders(folders) {
         li.className = 'folder-item';
         li.innerHTML = `
             <div class="folder-path" title="${folder}">${folder}</div>
-            <button class="btn-icon delete-folder-btn" data-index="${index}" title="Remove Folder"><i class="ph ph-x"></i></button>
+            <button class="btn-icon delete-folder-btn" aria-label="Remove Folder" data-index="${index}" title="Remove Folder"><i class="ph ph-x"></i></button>
         `;
         list.appendChild(li);
     });
@@ -1753,7 +1753,7 @@ function initApp() {
                                             <span>Added: ${dateStr}</span>
                                         </div>
                                     </div>
-                                    <button class="btn-icon delete-exception-btn" data-id="${ex.id}" title="Remove rule and resume scanning this target">
+                                    <button class="btn-icon delete-exception-btn" aria-label="Remove exception rule" data-id="${ex.id}" title="Remove rule and resume scanning this target">
                                         <i class="ph ph-trash" style="color:var(--danger)"></i>
                                     </button>
                                 </div>
