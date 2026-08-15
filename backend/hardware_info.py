@@ -390,16 +390,35 @@ def compute_fit_score(model: dict[str, Any], specs: dict[str, Any]) -> tuple[int
     return final_score, tier
 
 
-def get_recommended_models(specs: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
+def get_recommended_models(
+    specs: Optional[dict[str, Any]] = None,
+    force_refresh: bool = False,
+    use_dynamic_hf: bool = True,
+) -> list[dict[str, Any]]:
     """
-    Returns MODEL_CATALOG annotated with fit_score and fit_tier for the system specs,
-    sorted by fit_score descending and model size ascending.
+    Returns dynamically fetched or curated GGUF models annotated with fit_score and fit_tier
+    for the system specs, sorted by fit_score descending and model size ascending.
     """
     if specs is None:
         specs = get_full_system_specs()
 
+    if use_dynamic_hf:
+        try:
+            from .hf_catalog import get_dynamic_model_catalog
+            raw_catalog = get_dynamic_model_catalog(force_refresh=force_refresh, curated_catalog=MODEL_CATALOG)
+        except ImportError:
+            try:
+                from backend.hf_catalog import get_dynamic_model_catalog
+                raw_catalog = get_dynamic_model_catalog(force_refresh=force_refresh, curated_catalog=MODEL_CATALOG)
+            except Exception:
+                raw_catalog = MODEL_CATALOG
+        except Exception:
+            raw_catalog = MODEL_CATALOG
+    else:
+        raw_catalog = MODEL_CATALOG
+
     annotated = []
-    for model in MODEL_CATALOG:
+    for model in raw_catalog:
         score, tier = compute_fit_score(model, specs)
         entry = dict(model)
         entry["fit_score"] = score
@@ -408,3 +427,4 @@ def get_recommended_models(specs: Optional[dict[str, Any]] = None) -> list[dict[
 
     annotated.sort(key=lambda m: (-m["fit_score"], m["size_gb"]))
     return annotated
+

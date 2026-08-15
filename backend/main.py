@@ -513,11 +513,11 @@ class Api:
         except Exception as e:
             return {"error": str(e)}
 
-    def get_recommended_models(self) -> dict[str, Any]:
-        """Returns the curated model catalog ranked by hardware fit."""
+    def get_recommended_models(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Returns the dynamic Hugging Face & curated model catalog ranked by hardware fit."""
         try:
             specs = get_full_system_specs()
-            models = get_recommended_models(specs)
+            models = get_recommended_models(specs, force_refresh=force_refresh)
             return {"specs": specs, "models": models}
         except Exception as e:
             return {"error": str(e)}
