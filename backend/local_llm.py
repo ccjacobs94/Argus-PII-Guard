@@ -9,16 +9,16 @@ so the scanner can use it transparently.
 import os
 import threading
 from pathlib import Path
-
+from typing import Any, Optional, Union
 
 # Module-level state for the loaded model
 _model_lock = threading.Lock()
-_loaded_model = None
-_loaded_model_path = None
-_loaded_model_info = None
+_loaded_model: Optional[Any] = None
+_loaded_model_path: Optional[str] = None
+_loaded_model_info: Optional[dict[str, Any]] = None
 
 
-def is_available():
+def is_available() -> bool:
     """Check if llama-cpp-python is installed and importable."""
     try:
         import llama_cpp  # noqa: F401
@@ -27,19 +27,19 @@ def is_available():
         return False
 
 
-def scan_models_folder(folder_path):
+def scan_models_folder(folder_path: Union[str, Path]) -> list[dict[str, Any]]:
     """
-    Scan a directory for .gguf model files.
-    Returns a list of dicts with metadata about each discovered model.
+    Scans a directory for .gguf model files.
+    Returns a list of dicts with metadata for each discovered model.
     """
-    models = []
+    models: list[dict[str, Any]] = []
     folder = Path(folder_path)
 
     if not folder.exists() or not folder.is_dir():
         return models
 
     for file_path in sorted(folder.iterdir()):
-        if file_path.suffix.lower() == ".gguf" and file_path.is_file():
+        if file_path.is_file() and file_path.suffix.lower() == ".gguf":
             size_bytes = file_path.stat().st_size
             size_gb = round(size_bytes / (1024 ** 3), 2)
             models.append({
@@ -52,10 +52,19 @@ def scan_models_folder(folder_path):
     return models
 
 
-def load_model(gguf_path, n_gpu_layers=0, n_ctx=2048):
+def _unload_model_unsafe() -> None:
+    """Internal unload without lock — caller must hold _model_lock."""
+    global _loaded_model, _loaded_model_path, _loaded_model_info
+    if _loaded_model is not None:
+        del _loaded_model
+        _loaded_model = None
+    _loaded_model_path = None
+    _loaded_model_info = None
+
+
+def load_model(gguf_path: Union[str, Path], n_gpu_layers: int = 0, n_ctx: int = 2048) -> bool:
     """
-    Load a GGUF model from disk into memory.
-    Returns True on success, raises on failure.
+    Loads a GGUF model from disk into memory.
     Thread-safe via module lock.
     """
     global _loaded_model, _loaded_model_path, _loaded_model_info
@@ -73,7 +82,6 @@ def load_model(gguf_path, n_gpu_layers=0, n_ctx=2048):
     import llama_cpp
 
     with _model_lock:
-        # Unload previous model if any
         if _loaded_model is not None:
             _unload_model_unsafe()
 
@@ -98,61 +106,42 @@ def load_model(gguf_path, n_gpu_layers=0, n_ctx=2048):
     return True
 
 
-def _unload_model_unsafe():
-    """Internal unload without lock — caller must hold _model_lock."""
-    global _loaded_model, _loaded_model_path, _loaded_model_info
-    if _loaded_model is not None:
-        del _loaded_model
-        _loaded_model = None
-    _loaded_model_path = None
-    _loaded_model_info = None
-
-
-def unload_model():
-    """Unload the currently loaded model and free memory. Thread-safe."""
+def unload_model() -> bool:
+    """Unloads the currently loaded model and frees memory. Thread-safe."""
     with _model_lock:
         _unload_model_unsafe()
     return True
 
 
-def get_loaded_model_info():
-    """
-    Returns info dict about the currently loaded model, or None if no model is loaded.
-    """
+def get_loaded_model_info() -> Optional[dict[str, Any]]:
+    """Returns a snapshot copy of info for the currently loaded model, or None if idle."""
     with _model_lock:
-        if _loaded_model_info is not None:
-            return dict(_loaded_model_info)
-        return None
+        return dict(_loaded_model_info) if _loaded_model_info is not None else None
 
 
-def chat_completion(messages, temperature=0.0):
+def chat_completion(messages: list[dict[str, Any]], temperature: float = 0.0) -> dict[str, Any]:
     """
-    Run chat completion inference using the loaded GGUF model.
+    Runs chat completion inference using the loaded GGUF model.
 
     Args:
-        messages: List of dicts with 'role' and 'content' keys
-                  (matching the Ollama/OpenAI chat format).
+        messages: List of dicts with 'role' and 'content' keys.
         temperature: Sampling temperature (0.0 = deterministic).
 
     Returns:
-        A dict matching the Ollama client.chat() response format:
+        Dict matching Ollama's client.chat() format:
         {"message": {"role": "assistant", "content": "..."}}
-
-    Raises:
-        RuntimeError if no model is loaded.
     """
     with _model_lock:
         if _loaded_model is None:
             raise RuntimeError("No GGUF model is currently loaded. Load a model first.")
 
-        # llama-cpp-python uses create_chat_completion which expects
-        # messages in OpenAI format: [{"role": "...", "content": "..."}]
-        formatted_messages = []
-        for msg in messages:
-            formatted_messages.append({
+        formatted_messages = [
+            {
                 "role": msg.get("role", "user"),
                 "content": msg.get("content", ""),
-            })
+            }
+            for msg in messages
+        ]
 
         response = _loaded_model.create_chat_completion(
             messages=formatted_messages,
@@ -160,12 +149,10 @@ def chat_completion(messages, temperature=0.0):
             max_tokens=1024,
         )
 
-        # Extract the assistant's response text
         content = ""
-        if response and "choices" in response and len(response["choices"]) > 0:
+        if response and response.get("choices"):
             content = response["choices"][0].get("message", {}).get("content", "")
 
-        # Return in Ollama-compatible format
         return {
             "message": {
                 "role": "assistant",
