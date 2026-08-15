@@ -2198,6 +2198,12 @@ input:checked + .slider:before {
     background: rgba(58, 186, 140, 0.08);
 }
 
+.rec-model-tag-hf {
+    color: var(--argus-amber);
+    border-color: rgba(230, 168, 46, 0.25);
+    background: rgba(230, 168, 46, 0.08);
+}
+
 .rec-model-link {
     font-size: 10.5px;
     color: var(--argus-periwinkle);

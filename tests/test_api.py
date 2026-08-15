@@ -352,7 +352,8 @@ def test_api_get_recommended_models(api_instance):
         with patch("backend.main.get_recommended_models", return_value=[
             {"name": "Model A", "fit_score": 90, "fit_tier": "Excellent"}
         ]) as mock_rec:
-            result = api_instance.get_recommended_models()
+            result = api_instance.get_recommended_models(force_refresh=True)
+            mock_rec.assert_called_once_with(mock_specs, force_refresh=True)
             assert "specs" in result
             assert "models" in result
             assert len(result["models"]) == 1

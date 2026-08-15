@@ -241,7 +241,7 @@ class TestGetRecommendedModels:
         "gpu_name": None, "gpu_vram_gb": None, "os_platform": "win32"
     })
     def test_returns_annotated_models(self, mock_specs):
-        results = get_recommended_models()
+        results = get_recommended_models(use_dynamic_hf=False)
         assert len(results) == len(MODEL_CATALOG)
         for m in results:
             assert "fit_score" in m
@@ -254,7 +254,7 @@ class TestGetRecommendedModels:
         "gpu_name": None, "gpu_vram_gb": None, "os_platform": "win32"
     })
     def test_sorted_by_fit_score_desc(self, mock_specs):
-        results = get_recommended_models()
+        results = get_recommended_models(use_dynamic_hf=False)
         scores = [m["fit_score"] for m in results]
         assert scores == sorted(scores, reverse=True)
 
@@ -263,7 +263,7 @@ class TestGetRecommendedModels:
             "ram_total_gb": 4, "ram_available_gb": 3,
             "gpu_vram_gb": None
         }
-        results = get_recommended_models(specs)
+        results = get_recommended_models(specs, use_dynamic_hf=False)
         too_large = [m for m in results if m["fit_tier"] == "Too Large"]
         assert len(too_large) > 0
 
@@ -272,6 +272,17 @@ class TestGetRecommendedModels:
             "ram_total_gb": 128, "ram_available_gb": 100,
             "gpu_vram_gb": 48.0
         }
-        results = get_recommended_models(specs)
+        results = get_recommended_models(specs, use_dynamic_hf=False)
         too_large = [m for m in results if m["fit_tier"] == "Too Large"]
         assert len(too_large) == 0
+
+    @patch("backend.hf_catalog.get_dynamic_model_catalog")
+    def test_get_recommended_models_dynamic_hf(self, mock_get_dynamic):
+        mock_get_dynamic.return_value = [
+            {"name": "Dynamic A", "filename": "a.gguf", "min_ram_gb": 4, "rec_ram_gb": 8, "size_gb": 2.0}
+        ]
+        results = get_recommended_models(force_refresh=True, use_dynamic_hf=True)
+        assert len(results) == 1
+        assert results[0]["name"] == "Dynamic A"
+        assert "fit_score" in results[0]
+

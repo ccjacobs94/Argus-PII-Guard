@@ -1896,6 +1896,7 @@ function initApp() {
                                     <span class="rec-model-tag">${m.quant}</span>
                                     <span class="rec-model-tag">${m.size_gb} GB</span>
                                     ${m.vision ? '<span class="rec-model-tag rec-model-tag-vision"><i class="ph-fill ph-eye"></i> Vision</span>' : ''}
+                                    ${m.source === 'huggingface' ? '<span class="rec-model-tag rec-model-tag-hf"><i class="ph ph-sparkle"></i> HuggingFace</span>' : ''}
                                     <span class="rec-model-tag">Min ${m.min_ram_gb}GB RAM</span>
                                 </div>
                                 <div class="rec-model-actions">
@@ -2032,8 +2033,18 @@ function initApp() {
                 if (refreshRecsBtn) {
                     refreshRecsBtn.addEventListener('click', async () => {
                         if (pywebview.api.get_recommended_models) {
-                            const data = await pywebview.api.get_recommended_models();
-                            renderRecommendedModels(data);
+                            const originalHtml = refreshRecsBtn.innerHTML;
+                            refreshRecsBtn.disabled = true;
+                            refreshRecsBtn.innerHTML = '<i class="ph ph-arrows-clockwise spin"></i> Fetching...';
+                            try {
+                                const data = await pywebview.api.get_recommended_models(true);
+                                renderRecommendedModels(data);
+                            } catch (err) {
+                                console.error("Error refreshing recommendations:", err);
+                            } finally {
+                                refreshRecsBtn.disabled = false;
+                                refreshRecsBtn.innerHTML = originalHtml;
+                            }
                         }
                     });
                 }
