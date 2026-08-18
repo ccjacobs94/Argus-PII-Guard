@@ -116,6 +116,50 @@ def test_api_mark_file_ok_and_cache(api_instance, tmp_path):
     assert len(cache[str_file_key]["checksum"]) == 64
     assert "size" in cache[str_file_key]
 
+def test_api_mark_files_ok(api_instance, tmp_path):
+    from backend.scanner import scan_state
+
+    test_file_1 = tmp_path / "fp1.txt"
+    test_file_1.write_text("dummy 1", encoding="utf-8")
+    test_file_2 = tmp_path / "fp2.txt"
+    test_file_2.write_text("dummy 2", encoding="utf-8")
+    missing_file = tmp_path / "missing.txt"
+
+    files_to_mark = [str(test_file_1), str(test_file_2), str(missing_file)]
+
+    save_results([
+        {"file": str(test_file_1), "type": "Text", "reason": "SSN"},
+        {"file": str(test_file_2), "type": "Text", "reason": "CC"},
+        {"file": str(missing_file), "type": "Text", "reason": "Other"},
+        {"file": "unrelated.txt", "type": "Text", "reason": "Keep"}
+    ])
+
+    scan_state.flagged_files = [
+        {"file": str(test_file_1)},
+        {"file": str(test_file_2)},
+        {"file": str(missing_file)},
+        {"file": "unrelated.txt"}
+    ]
+
+    res = api_instance.mark_files_ok(files_to_mark)
+    assert res["success"] is True
+    assert res["cleared"] == files_to_mark
+
+    results = api_instance.get_results()
+    assert len(results) == 1
+    assert results[0]["file"] == "unrelated.txt"
+
+    assert len(scan_state.flagged_files) == 1
+    assert scan_state.flagged_files[0]["file"] == "unrelated.txt"
+
+    cache = load_cache()
+    for path in files_to_mark:
+        assert path in cache
+        assert cache[path]["result"]["marked_ok"] is True
+
+    assert cache[str(missing_file)]["mtime"] == 0
+    assert cache[str(missing_file)]["size"] == 0
+
 def test_api_verify_file_ai(api_instance, tmp_path):
     f_comp = tmp_path / "comp.txt"
     f_comp.write_text("compromised secret")
